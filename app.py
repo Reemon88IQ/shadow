@@ -33,6 +33,9 @@ SONG_EXTS = ('.wav', '.mp3', '.m4a', '.flac', '.ogg', '.aac')   # Auto: <scene>.
 OUTDATED = 'This scene is outdated and does not support 9:16'
 FORMAT_AUTO = 'Auto (by file name)'   # per file: a name starting with "short_" -> 9:16, every other file -> 16:9
 FORMAT_CHOICES = list(rc.FORMATS) + [FORMAT_AUTO]
+# Capture: how each frame leaves the browser (render_core.render(capture=...)). PNG = lossless; JPEG = about 2x faster render,
+# final video very slightly softer (measured SSIM 0.986 -> 0.983 on a 1080p scene) and ~1.7x larger file.
+CAPTURES = {'Best quality (PNG)': 'png', 'Fast (JPEG, ~2x faster)': 'jpeg'}
 SHORT_PREFIX = 'short_'
 
 log = logging.getLogger('shadow')
@@ -308,6 +311,7 @@ class App(Root):
         q = cfg.get('preset'); self.preset = tk.StringVar(value=q if q in rc.PRESETS else 'Best (1080p, 64 samples)')
         self.open_when_done = tk.BooleanVar(value=cfg.get('open', True))
         f = cfg.get('format'); self.fmt = tk.StringVar(value=f if f in FORMAT_CHOICES else '16:9 (YouTube)')
+        c = cfg.get('capture'); self.capture = tk.StringVar(value=c if c in CAPTURES else next(iter(CAPTURES)))
         s = cfg.get('sound'); self.snd = tk.StringVar(value=s if s in SOUNDS else SOUNDS[0]); self.snd_file = tk.StringVar(value=cfg.get('sound_file', ''))
         self.protocol('WM_DELETE_WINDOW', self.on_close)
         self.apply_theme()
@@ -439,16 +443,17 @@ class App(Root):
 
         # options
         op = ttk.LabelFrame(self, text='Options', padding=10); op.pack(fill='x', padx=P)
-        rows = (('Quality', self.preset, list(rc.PRESETS)), ('Format', self.fmt, FORMAT_CHOICES), ('Sound', self.snd, SOUNDS))
+        rows = (('Quality', self.preset, list(rc.PRESETS)), ('Format', self.fmt, FORMAT_CHOICES), ('Sound', self.snd, SOUNDS),
+                ('Capture', self.capture, list(CAPTURES)))
         for r, (lbl, var, vals) in enumerate(rows):
             ttk.Label(op, text=lbl).grid(row=r, column=0, sticky='w', pady=3)
             ttk.Combobox(op, textvariable=var, values=vals, state='readonly', width=32).grid(row=r, column=1, sticky='w', padx=10, pady=3)
         self.snd.trace_add('write', self.on_sound)
         self.fmt.trace_add('write', lambda *_: self.refresh_audio())   # the Format column follows the Format setting
         ttk.Label(op, textvariable=self.snd_file, foreground='#888').grid(row=2, column=2, columnspan=2, sticky='w')
-        ttk.Label(op, text='Save to').grid(row=3, column=0, sticky='w', pady=3)
-        ttk.Entry(op, textvariable=self.out_dir).grid(row=3, column=1, columnspan=2, sticky='we', padx=10, pady=3)
-        ttk.Button(op, text='Browse...', command=self.pick_out).grid(row=3, column=3, sticky='e')
+        ttk.Label(op, text='Save to').grid(row=4, column=0, sticky='w', pady=3)
+        ttk.Entry(op, textvariable=self.out_dir).grid(row=4, column=1, columnspan=2, sticky='we', padx=10, pady=3)
+        ttk.Button(op, text='Browse...', command=self.pick_out).grid(row=4, column=3, sticky='e')
         op.columnconfigure(2, weight=1)
 
         # progress
@@ -692,7 +697,7 @@ class App(Root):
         open_path(LOG)
     def save(self):
         save_cfg({'out': self.out_dir.get(), 'preset': self.preset.get(), 'open': self.open_when_done.get(), 'format': self.fmt.get(),
-                  'sound': self.snd.get(), 'sound_file': self.snd_file.get(), **({'theme': self.theme_choice} if self.theme_choice else {})})
+                  'capture': self.capture.get(), 'sound': self.snd.get(), 'sound_file': self.snd_file.get(), **({'theme': self.theme_choice} if self.theme_choice else {})})
     def on_close(self):
         self.do_cancel(); self.save()
         try: self.after_cancel(self._poll_id)
@@ -726,7 +731,8 @@ class App(Root):
         with self.lock:
             keep = {f for f, _ in jobs}
             for f in self.files: self.state[f] = 'queued' if f in keep else 'skipped'
-        self.opts = dict(vertical=vertical, format=fmt_name, sound=mode, audio_file=self.snd_file.get() or None)
+        self.opts = dict(vertical=vertical, format=fmt_name, sound=mode, audio_file=self.snd_file.get() or None,
+                         capture=CAPTURES.get(self.capture.get(), 'png'))
         self.cancel.clear(); self.go.config(state='disabled'); self.stop.config(state='normal'); self.stop_cur.config(state='normal')
         self.bar['value'] = 0; self.pct.config(text='0%')
         preset = rc.PRESETS[self.preset.get()]
@@ -846,7 +852,7 @@ class App(Root):
                 m = self.q.get_nowait()
                 if m[0] == 'p':
                     _, k, n, f, stage, a, b, eta = m
-                    frac = {'load': 0.0, 'frames': 0.9 * a / max(b, 1), 'audio': 0.92, 'encode': 0.95, 'done': 1.0}[stage]
+                    frac = {'load': 0.0, 'audio': 0.02, 'frames': 0.03 + 0.92 * a / max(b, 1), 'encode': 0.96, 'done': 1.0}[stage]   # order: load, audio, frames, encode
                     pct = 100 * (k + frac) / n
                     self.bar['value'] = pct
                     self.pct.config(text=f'{pct:.0f}%' + (f'  ·  {fmt(eta)} left' if eta and stage == 'frames' else ''))
@@ -936,20 +942,22 @@ class NarrationDialog:
         self.top.destroy(); self.app._update_narr_btn()
 
 def cli(argv):
-    """Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent]
+    """Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent] [--fast]
     Renders without the window (for scripts and for testing the built exe). Progress and errors go to shadow.log.
     Exit code 0 = done and the output size checked, 1 = failed."""
     import argparse
     ap = argparse.ArgumentParser(prog='Shadow'); ap.add_argument('--render', nargs=2, metavar=('SCENE', 'OUT'), required=True)
     ap.add_argument('--vertical', action='store_true'); ap.add_argument('--silent', action='store_true')
     ap.add_argument('--preset', default='best', choices=['draft', 'good', 'best'])
+    ap.add_argument('--fast', action='store_true', help='Fast capture (JPEG frames, about 2x faster)')
     a = ap.parse_args(argv)
     preset = next(v for k, v in rc.PRESETS.items() if k.lower().startswith(a.preset))
     scene, out = (os.path.abspath(x) for x in a.render)
     log.info('cli render %s -> %s preset=%s vertical=%s', scene, out, a.preset, a.vertical)
     try:
         used = {}
-        rc.render(scene, out, preset, vertical=a.vertical, sound='none' if a.silent else 'generated', info=used)
+        rc.render(scene, out, preset, vertical=a.vertical, sound='none' if a.silent else 'generated', info=used,
+                  capture='jpeg' if a.fast else 'png')
         pr = probe(out); exp = expected_size(preset, a.vertical)
         log.info('cli done %s %s sound=%s expected=%s', out, pr, used.get('sound'), exp)
         try:   # QC is information only: the exit code below does not depend on it

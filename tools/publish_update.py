@@ -10,7 +10,7 @@ try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 except Exception: pass
 import updater
 
-TESTS = ['test_queue_logic', 'test_qc_parse', 'test_updater', 'test_theme', 'test_narrate_build', 'test_audio_encode',
+TESTS = ['test_queue_logic', 'test_qc_parse', 'test_updater', 'test_theme', 'test_capture', 'test_narrate_build', 'test_audio_encode',
          'test_qc_run', 'test_narrate_render', 'regression', 'test_queue_gui']   # quick ones first (the CLAUDE.md list)
 VER_RE = re.compile(r'^VERSION = "([^"]+)"', re.M)
 
