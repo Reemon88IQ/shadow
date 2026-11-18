@@ -28,7 +28,9 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-CloseApplications=yes
+CloseApplications=force
+; always write %TEMP%\Setup Log <date> #nnn.txt (clues if an update ever fails)
+SetupLogging=yes
 RestartApplications=no
 ShowLanguageDialog=yes
 
@@ -109,6 +111,29 @@ end;
 function HasWinget: Boolean;
 begin
   Result := OnPath('winget.exe');
+end;
+
+function ShadowRunningHere: Boolean;
+var rc: Integer;
+begin
+  // a Shadow.exe started from THIS install folder (another copy elsewhere does not block the update)
+  Exec('powershell.exe', '-NoProfile -NonInteractive -Command "if (Get-Process Shadow -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ''' +
+       ExpandConstant('{app}') + '\*'' }) { exit 0 } else { exit 1 }"', '', SW_HIDE, ewWaitUntilTerminated, rc);
+  Result := rc = 0;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var i: Integer;
+begin
+  // In-app update (/relaunch=1): the old Shadow closes itself right after starting this setup, but a onefile exe keeps
+  // its file locked for a second or two while it cleans up - replacing it then failed silently (first update attempt
+  // stayed on the old version). Wait until it is really gone (max 30 s), then install.
+  Result := '';
+  if WantRelaunch then begin
+    i := 0;
+    while ShadowRunningHere and (i < 60) do begin Sleep(500); i := i + 1; end;
+    Log(Format('Shadow update: waited %d ms for the old Shadow to exit (still running: %d)', [i * 500, Ord(ShadowRunningHere)]));
+  end;
 end;
 
 function InitializeSetup: Boolean;
