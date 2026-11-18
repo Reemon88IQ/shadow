@@ -117,6 +117,9 @@ def main():
         fm([format_vertical(x, AUTO) for x in ('short_rain.html', os.path.join('C:' + os.sep, 'x y', 'Short_Fox.HTML'), 'SHORT_a.htm')], [True] * 3, 'short_ prefix (any case, any folder) -> 9:16')
         fm([format_vertical(x, AUTO) for x in ('rain.html', 'shorts_rain.html', 'my_short_rain.html', 'short.html', 'short-rain.html', os.path.join('short_dir', 'rain.html'))],
            [False] * 6, 'no short_ prefix on the FILE name -> 16:9 (shorts_, _short_, short., short-, folder named short_)')
+        fm([format_vertical(x, AUTO) for x in ('only-if-you-stay-short.html', 'rain_short.HTML', 'rain-shorts.html', 'rain short.htm')], [True] * 4,
+           'short at the END of the name (-short, _short, " short", ...shorts; any case) -> 9:16')
+        fm([format_vertical(x, AUTO) for x in ('shortcake.html', 'rain-shortcut.html', 'rainshort.html')], [False] * 3, 'words that only contain "short" stay 16:9')
         fm((format_vertical('short_x.html', '16:9 (YouTube)'), format_vertical('x.html', '9:16 (Shorts)'), format_vertical('x.html', 'bogus')), (False, True, False),
            'fixed formats ignore the file name; unknown label -> 16:9')
         fm((app.format_label(True), app.format_label(False)), ('9:16', '16:9'), 'Format column text')

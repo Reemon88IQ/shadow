@@ -37,6 +37,7 @@ FORMAT_CHOICES = list(rc.FORMATS) + [FORMAT_AUTO]
 # final video very slightly softer (measured SSIM 0.986 -> 0.983 on a 1080p scene) and ~1.7x larger file.
 CAPTURES = {'Best quality (PNG)': 'png', 'Fast (JPEG, ~2x faster)': 'jpeg'}
 SHORT_PREFIX = 'short_'
+SHORT_SUFFIXES = tuple(sep + w for sep in ('-', '_', ' ') for w in ('short', 'shorts'))   # rain-short.html, rain_shorts.html ... -> 9:16 too
 
 log = logging.getLogger('shadow')
 def setup_log():
@@ -112,9 +113,11 @@ def find_scene_audio(scene_path):
 
 def format_vertical(scene_path, fmt_label):
     """True = 9:16 for this file. fmt_label is the Format combobox label; in Auto (by file name) a scene whose file name
-    starts with "short_" (any case) is 9:16 and every other one 16:9. Unknown labels -> 16:9. Pure (no disk access)."""
+    starts with "short_" or ends with "-short" / "_short" / " short" (also "...shorts"; any case) is 9:16, every other one
+    16:9. Unknown labels -> 16:9. Pure (no disk access)."""
     if fmt_label == FORMAT_AUTO:
-        return os.path.basename(scene_path).lower().startswith(SHORT_PREFIX)
+        stem = os.path.splitext(os.path.basename(scene_path))[0].lower()
+        return stem.startswith(SHORT_PREFIX) or stem.endswith(SHORT_SUFFIXES)
     return bool(rc.FORMATS.get(fmt_label, False))
 
 def format_label(vertical):
