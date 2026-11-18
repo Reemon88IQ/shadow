@@ -1,0 +1,15 @@
+<!doctype html><meta charset=utf-8><title>broken scene, no seek() (test fixture)</title>
+<body style="margin:0;background:#000"><canvas id=c></canvas>
+<script>
+// Smallest scene that follows the Shadow contract: no three.js, no generated score, reads w and h.
+const q = new URLSearchParams(location.search), W = +q.get('w') || 1280, H = +q.get('h') || Math.round(W * 9 / 16);
+const c = document.getElementById('c'); c.width = W; c.height = H; const g = c.getContext('2d');
+window.DURATION = 1.5;
+window.not_seek = (t) => {
+  g.fillStyle = '#123'; g.fillRect(0, 0, W, H);
+  const r = Math.min(W, H) * 0.15, x = r + (W - 2 * r) * (t / window.DURATION);
+  g.fillStyle = '#f80'; g.beginPath(); g.arc(x, H / 2, r, 0, 7); g.fill();
+  g.fillStyle = '#fff'; g.font = `${Math.round(H / 12)}px sans-serif`; g.textAlign = 'center'; g.fillText(`${W}x${H}  t=${t.toFixed(2)}`, W / 2, H * 0.85);
+};
+window.__ready = true;
+</script>

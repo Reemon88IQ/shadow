@@ -1,0 +1,38 @@
+<!doctype html><meta charset=utf-8><title>minimal WebGL scene with a SOUND kit in a module script (test fixture)</title>
+<body style="margin:0;background:#000"><canvas id=c></canvas>
+<script type="module">
+// Stand-in for a three.js scene in the tests: a WebGL canvas (no three.js, no CDN: raw WebGL clear + scissor),
+// reads w and h (get('h') -> 9:16 capable), a generated SOUND kit defined inside <script type="module"> (so SOUND only exists
+// once the module has run, like the real three.js scenes), pure seek(t), __ready set at the end of the module.
+const get = (k) => new URLSearchParams(location.search).get(k);
+const W = +get('w') || 1280, H = +get('h') || Math.round(W * 9 / 16);
+const c = document.getElementById('c'); c.width = W; c.height = H;
+const gl = c.getContext('webgl', { preserveDrawingBuffer: true, antialias: false });
+if (!gl) throw new Error('WebGL not available');
+window.DURATION = 4;
+window.SOUND = {
+  kit(ctx, o) { return { ctx, voiceover: !!(o && o.voiceover) }; },
+  async renderOffline(fn, duration, sr, kitOpts) {
+    sr = sr || 48000; const len = Math.ceil(duration * sr), ctx = new OfflineAudioContext(2, len, sr);
+    fn(SOUND.kit(ctx, kitOpts || {}));
+    const buf = await ctx.startRendering(), L = buf.getChannelData(0), R = buf.getChannelData(1), inter = new Float32Array(len * 2);
+    let peak = 0; for (let i = 0; i < len; i++) { inter[2 * i] = L[i]; inter[2 * i + 1] = R[i]; peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i])); }
+    return { inter, peak, frames: len, sr };
+  },
+  live(fn, fromT, opts) { return () => {}; },
+};
+// a quiet 600 Hz hum (voiceover mode turns it down), same score as tests/fixtures/narr_2d.html
+window.STYLE_SOUND = (k) => {
+  const o = k.ctx.createOscillator(), v = k.ctx.createGain(); o.frequency.value = 600; v.gain.value = k.voiceover ? 0.02 : 0.08;
+  o.connect(v).connect(k.ctx.destination); o.start(0); o.stop(window.DURATION);
+};
+window.seek = (t) => {
+  const p = t / window.DURATION, s = Math.round(Math.min(W, H) * 0.25);
+  gl.viewport(0, 0, W, H); gl.disable(gl.SCISSOR_TEST);
+  gl.clearColor(0.05 + 0.2 * p, 0.12, 0.3 - 0.15 * p, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(Math.round((W - s) * p), Math.round((H - s) / 2), s, s);     // WebGL origin is bottom-left
+  gl.clearColor(0.95, 0.55, 0.15, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+};
+window.seek(0); window.__ready = true;
+</script>

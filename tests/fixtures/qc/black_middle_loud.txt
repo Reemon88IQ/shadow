@@ -1,0 +1,49 @@
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '<tmp>\c.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf63.1.102
+  Duration: 00:00:06.00, start: 0.000000, bitrate: 607 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 640x360 [SAR 1:1 DAR 16:9], 527 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      encoder         : Lavc63.1.102 libx264
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 69 kb/s (default)
+    Metadata:
+      handler_name    : SoundHandler
+Stream mapping:
+  Stream #0:0 (h264) -> scale:default
+  Stream #0:1 (aac) -> ebur128:default
+  freezedetect:default -> Stream #0:0 (wrapped_avframe)
+  ebur128:out0 -> Stream #0:1 (pcm_s16le)
+Press [q] to stop, [?] for help
+Output #0, null, to 'pipe:':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf63.1.102
+  Stream #0:0: Video: wrapped_avframe, yuv420p(progressive), 320x180 [SAR 1:1 DAR 16:9], q=2-31, 200 kb/s, 30 fps, 30 tbn
+    Metadata:
+      encoder         : Lavc63.1.102 wrapped_avframe
+  Stream #0:1: Audio: pcm_s16le, 44100 Hz, mono, s16, 705 kb/s
+    Metadata:
+      encoder         : Lavc63.1.102 pcm_s16le
+[Parsed_blackdetect_1 @ 0000029510463380] black_start:2 black_end:4 black_duration:2
+[Parsed_ebur128_3 @ 0000029510051480] Summary:
+
+  Integrated loudness:
+    I:          -4.3 LUFS
+    Threshold: -14.3 LUFS
+
+  Loudness range:
+    LRA:         0.1 LU
+    Threshold: -24.3 LUFS
+    LRA low:    -4.3 LUFS
+    LRA high:   -4.2 LUFS
+
+  True peak:
+    Peak:        0.5 dBFS
+[out#0/null @ 000002950dec1a00] video:75KiB audio:517KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=  180 fps=0.0 q=-0.0 Lsize=N/A time=00:00:06.00 bitrate=N/A speed= 170x elapsed=0:00:00.03    

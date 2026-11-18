@@ -1,0 +1,29 @@
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '<tmp>\b.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf63.1.102
+  Duration: 00:00:08.00, start: 0.000000, bitrate: 204 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 640x360 [SAR 1:1 DAR 16:9], 201 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      encoder         : Lavc63.1.102 libx264
+Stream mapping:
+  Stream #0:0 (h264) -> scale:default
+  freezedetect:default -> Stream #0:0 (wrapped_avframe)
+Press [q] to stop, [?] for help
+Output #0, null, to 'pipe:':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf63.1.102
+  Stream #0:0: Video: wrapped_avframe, yuv420p(progressive), 320x180 [SAR 1:1 DAR 16:9], q=2-31, 200 kb/s, 30 fps, 30 tbn
+    Metadata:
+      encoder         : Lavc63.1.102 wrapped_avframe
+[Parsed_freezedetect_2 @ 000001fb84416900] lavfi.freezedetect.freeze_start: 0
+[Parsed_freezedetect_2 @ 000001fb84416900] lavfi.freezedetect.freeze_duration: 6
+[Parsed_freezedetect_2 @ 000001fb84416900] lavfi.freezedetect.freeze_end: 6
+[out#0/null @ 000001fb82180b00] video:99KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=  240 fps=0.0 q=-0.0 Lsize=N/A time=00:00:08.00 bitrate=N/A speed= 250x elapsed=0:00:00.03    

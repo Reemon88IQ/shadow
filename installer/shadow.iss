@@ -1,0 +1,133 @@
+﻿; Shadow installer (Inno Setup 6, free: https://jrsoftware.org).
+; Build with build_installer.bat (it reads VERSION from render_core.py and needs dist\Shadow.exe from build_exe.bat).
+; Installs per user (no admin) to %LOCALAPPDATA%\Shadow - the same place install.bat uses, so it upgrades either.
+; Settings (%USERPROFILE%\.shadow_renderer.json) and logs are never touched, also not by the uninstaller.
+
+#ifndef AppVer
+  #define AppVer "0.0"
+#endif
+
+[Setup]
+AppId={{8C4C2F4E-6B1E-4C1A-9E57-5A4D2B7C9E21}
+AppName=Shadow
+AppVersion={#AppVer}
+AppVerName=Shadow {#AppVer}
+AppPublisher=Reemon
+VersionInfoVersion={#AppVer}
+DefaultDirName={localappdata}\Shadow
+DisableProgramGroupPage=yes
+UsePreviousAppDir=yes
+PrivilegesRequired=lowest
+OutputDir=..\dist
+OutputBaseFilename=Shadow-{#AppVer}-Setup
+SetupIconFile=..\assets\shadow.ico
+UninstallDisplayIcon={app}\Shadow.exe
+UninstallDisplayName=Shadow {#AppVer}
+Compression=lzma2/max
+SolidCompression=yes
+WizardStyle=modern
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+CloseApplications=yes
+RestartApplications=no
+ShowLanguageDialog=yes
+
+[Languages]
+Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "ar"; MessagesFile: "compiler:Languages\Arabic.isl"
+
+[CustomMessages]
+en.StartMenuIcon=Create a Start menu shortcut
+ar.StartMenuIcon=إنشاء اختصار في قائمة ابدأ
+en.Needed=Shadow needs these (installed with winget, internet required):
+ar.Needed=Shadow يحتاج هذه البرامج (تُنصَّب عبر winget، يحتاج إنترنت):
+en.NeedChrome=Install Google Chrome (Shadow renders with it)
+ar.NeedChrome=تنصيب Google Chrome (Shadow يرندر بيه)
+en.NeedFFmpeg=Install ffmpeg (encoding and the quality check)
+ar.NeedFFmpeg=تنصيب ffmpeg (للترميز وفحص الجودة)
+en.InstallingChrome=Installing Google Chrome (a console window opens)...
+ar.InstallingChrome=جاري تنصيب Google Chrome (تنفتح نافذة أوامر)...
+en.InstallingFFmpeg=Installing ffmpeg (a console window opens)...
+ar.InstallingFFmpeg=جاري تنصيب ffmpeg (تنفتح نافذة أوامر)...
+en.NoWinget=winget was not found on this PC, so these could not be installed automatically:%n%n%1%nInstall them yourself, then open Shadow and check the top bar (or press "Install missing").
+ar.NoWinget=ما لگينا winget بهذه الحاسبة، فما گدرنا ننصّب هذه تلقائياً:%n%n%1%nنصّبها بنفسك، وبعدين افتح Shadow وشوف الشريط الفوگاني (أو اضغط "Install missing").
+en.FFmpegFresh=ffmpeg was just installed. If Shadow shows "ffmpeg (missing)", sign out and back in (or restart Windows) once.
+ar.FFmpegFresh=ffmpeg انتصب هسه. إذا Shadow طلّع "ffmpeg (missing)"، سوّي تسجيل خروج ودخول (أو ريستارت) مرة وحدة.
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "startmenuicon"; Description: "{cm:StartMenuIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "chrome"; Description: "{cm:NeedChrome}"; GroupDescription: "{cm:Needed}"; Check: NeedChrome
+Name: "ffmpeg"; Description: "{cm:NeedFFmpeg}"; GroupDescription: "{cm:Needed}"; Check: NeedFFmpeg
+
+[Files]
+Source: "..\dist\Shadow.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\shadow.ico"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{autoprograms}\Shadow"; Filename: "{app}\Shadow.exe"; WorkingDir: "{app}"; IconFilename: "{app}\shadow.ico"; Tasks: startmenuicon
+Name: "{autodesktop}\Shadow"; Filename: "{app}\Shadow.exe"; WorkingDir: "{app}"; IconFilename: "{app}\shadow.ico"; Tasks: desktopicon
+
+[Run]
+; visible console: winget shows its own prompts (the user accepts Chrome's / ffmpeg's terms there)
+Filename: "{cmd}"; Parameters: "/c winget install -e --id Google.Chrome || pause"; StatusMsg: "{cm:InstallingChrome}"; Tasks: chrome; Check: HasWinget; Flags: waituntilterminated
+Filename: "{cmd}"; Parameters: "/c winget install -e --id Gyan.FFmpeg || pause"; StatusMsg: "{cm:InstallingFFmpeg}"; Tasks: ffmpeg; Check: HasWinget; Flags: waituntilterminated
+Filename: "{app}\Shadow.exe"; Description: "{cm:LaunchProgram,Shadow}"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent
+; the in-app updater runs the setup with /SILENT /relaunch=1: start Shadow again when done.
+; PYINSTALLER_RESET_ENVIRONMENT=1: the old Shadow (onefile) handed its _PYI_* variables down to this setup; without the reset
+; the new Shadow.exe would look for python3xx.dll in the old copy's deleted _MEI folder ("Failed to load Python DLL", v3.0 -> 3.1)
+Filename: "{cmd}"; Parameters: "/c set PYINSTALLER_RESET_ENVIRONMENT=1&& start """" ""{app}\Shadow.exe"""; WorkingDir: "{app}"; Flags: nowait runhidden; Check: WantRelaunch
+
+[Code]
+function OnPath(Name: String): Boolean;
+begin
+  Result := FileSearch(Name, GetEnv('PATH')) <> '';
+end;
+
+function ChromePresent: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{commonpf64}\Google\Chrome\Application\chrome.exe'))
+    or FileExists(ExpandConstant('{commonpf32}\Google\Chrome\Application\chrome.exe'))
+    or FileExists(ExpandConstant('{localappdata}\Google\Chrome\Application\chrome.exe'));
+end;
+
+function NeedChrome: Boolean;
+begin
+  Result := not ChromePresent;
+end;
+
+function NeedFFmpeg: Boolean;
+begin
+  Result := not (OnPath('ffmpeg.exe') and OnPath('ffprobe.exe'));
+end;
+
+function WantRelaunch: Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
+end;
+
+function HasWinget: Boolean;
+begin
+  Result := OnPath('winget.exe');
+end;
+
+function InitializeSetup: Boolean;
+begin
+  Log(Format('Shadow setup: Chrome present=%d, ffmpeg+ffprobe on PATH=%d, winget on PATH=%d', [Ord(ChromePresent), Ord(not NeedFFmpeg), Ord(HasWinget)]));
+  Result := True;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Missing: String;
+begin
+  if CurStep = ssPostInstall then begin
+    Missing := '';
+    if WizardIsTaskSelected('chrome') and not HasWinget then Missing := Missing + '- Google Chrome (google.com/chrome)' + #13#10;
+    if WizardIsTaskSelected('ffmpeg') and not HasWinget then Missing := Missing + '- ffmpeg (ffmpeg.org)' + #13#10;
+    if Missing <> '' then
+      SuppressibleMsgBox(FmtMessage(CustomMessage('NoWinget'), [Missing]), mbInformation, MB_OK, IDOK)
+    else if WizardIsTaskSelected('ffmpeg') then
+      SuppressibleMsgBox(CustomMessage('FFmpegFresh'), mbInformation, MB_OK, IDOK);
+  end;
+end;

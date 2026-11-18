@@ -1,0 +1,10 @@
+.venv/
+kit_captions/.venv/
+node_modules/
+__pycache__/
+*.mp4
+dist/
+build/
+kit_captions/run/*.mp4
+Shadow.spec
+scenes/*/
