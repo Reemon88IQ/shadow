@@ -83,6 +83,17 @@ def main():
         s = sei.group(0).decode('latin1') if sei else ''
         check(all(k in s for k in ('crf=16.0', 'subme=7', ' ref=3', 'me=hex', 'rc_lookahead=40')), 'render(): the mp4 was encoded with preset medium, crf 16',
               ' '.join(x for x in s.split() if x.split('=')[0] in ('crf', 'subme', 'ref', 'me', 'rc_lookahead')) or 'no x264 settings found', 'crf=16.0 subme=7 ref=3 me=hex rc_lookahead=40')
+        # finalize_audio: a dense, loud master that AAC pushes over -1 dBTP (like real songs: limiter -1.4 -> AAC 0.0 dBTP)
+        dense = os.path.join(d, 'dense.wav')
+        ff('-f', 'lavfi', '-i', 'anoisesrc=color=pink:amplitude=1:d=20:r=48000', '-f', 'lavfi', '-i', 'sine=f=55:d=20:r=48000',   # ~-10 LUFS
+           '-filter_complex', '[0][1]amix=inputs=2:normalize=0,volume=14dB,alimiter=limit=0.84:level=0:latency=1,aformat=channel_layouts=stereo', dense)
+        aac = os.path.join(d, 'raw.m4a'); ff('-i', dense, '-c:a', 'aac', '-b:a', '192k', aac); before = measure(aac)
+        fixed = rc.finalize_audio(rc.find_ffmpeg(), dense, d); out = os.path.join(d, 'fixed.m4a'); ff('-i', fixed, '-c:a', 'aac', '-b:a', '192k', out); after = measure(out)
+        check(after['tp'] is not None and after['tp'] <= TP_MAX and after['lufs'] is not None and -16.0 <= after['lufs'] <= -14.0 and before['lufs'] > -12,
+              'finalize_audio: after AAC the true peak is <= -1 dBTP and a louder-than-target song is turned down to ~-15 LUFS',
+              f"{before['lufs']} LUFS / {before['tp']} dBTP -> {after['lufs']} LUFS / {after['tp']} dBTP", f'<= {TP_MAX} dBTP, <= -14 LUFS')
+        quiet = os.path.join(d, 'quiet.wav'); ff('-f', 'lavfi', '-i', 'sine=f=440:d=5:r=48000', '-af', 'volume=-30dB', quiet)
+        check(rc.finalize_audio(rc.find_ffmpeg(), quiet, d) == quiet, 'finalize_audio never turns a quiet track up (returns it unchanged)', 'unchanged', 'unchanged')
     finally:
         shutil.rmtree(d, ignore_errors=True)
     print(f'{sum(results)}/{len(results)} passed')

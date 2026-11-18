@@ -73,6 +73,19 @@ try:
     try: rc.render(WEBGL, out, PRESET, cancel=ev, progress=lambda s, n, *r: ev.set() if s == 'frames' and n >= 2 else None, **dict(KW, max_frames=60))
     except rc.Cancelled: pass
     check('C7 an existing file with the output name is untouched after a cancelled render', open(out, 'rb').read() == b'keep me' and not leftovers(TMP))
+    # C10: a scene with window.THUMBNAIL_T -> info['thumbnail_t'], and the app saves <name>_thumb.jpg at 1280x720
+    th_scene = os.path.join(TMP, 'thumb scene.html')
+    open(th_scene, 'w', encoding='utf-8').write(open(WEBGL, encoding='utf-8').read() + '\n<script>window.THUMBNAIL_T = 2;</script>\n')
+    out = os.path.join(TMP, 'c10.mp4'); info = {}
+    rc.render(th_scene, out, PRESET, info=info, **dict(KW, max_frames=None))
+    import app as _app
+    th = _app.save_thumbnail(out, info.get('thumbnail_t', -1), False)
+    from PIL import Image
+    check(f"C10 THUMBNAIL_T -> info {info.get('thumbnail_t')} s, {os.path.basename(th or '-')} 1280x720",
+          info.get('thumbnail_t') == 2.0 and th and Image.open(th).size == (1280, 720), (info, th))
+    info2 = {}; rc.render(WEBGL, os.path.join(TMP, 'c10b.mp4'), PRESET, info=info2, **KW)
+    check('C10 a scene without THUMBNAIL_T gets no thumbnail time', 'thumbnail_t' not in info2, info2)
+
     # C8/C9: the app side - the Capture setting reaches render_core, and it is remembered (temp settings file only)
     import json, app
     rec = {}; real = rc.render

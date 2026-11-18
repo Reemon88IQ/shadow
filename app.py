@@ -232,6 +232,19 @@ def render_item(scene, mp4, preset, opts, narr=None, cancel=None, progress=lambd
     finally:
         if tmp: remove_with_retries(tmp)
 
+def save_thumbnail(mp4, t, vertical):
+    """<name>_thumb.jpg next to the mp4: the frame at t seconds, 1280x720 (720x1280 for 9:16), as YouTube wants.
+    Only for scenes that set window.THUMBNAIL_T. Never raises (a failed thumbnail must not fail the render); returns the path or None."""
+    try:
+        out = unique_path(os.path.splitext(mp4)[0] + '_thumb.jpg'); size = '720:1280' if vertical else '1280:720'
+        r = subprocess.run([rc.find_ffmpeg(), '-v', 'error', '-y', '-ss', f'{t:.3f}', '-i', mp4, '-frames:v', '1', '-vf', f'scale={size}', '-q:v', '2', out],
+                           capture_output=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if r.returncode == 0 and os.path.exists(out): log.info('thumbnail %s at %.2f s', out, t); return out
+        log.error('thumbnail failed for %s: %s', mp4, r.stderr.decode('utf-8', 'replace')[-300:])
+    except Exception:
+        log.error('thumbnail failed for %s\n%s', mp4, traceback.format_exc())
+    return None
+
 def quality_check(mp4, preset, vertical, info, sound):
     """Post-render QC (qc.run_qc + qc.write_report) for a finished mp4. Returns (result, report_path), or (None, None) if
     the QC code itself broke - that is only logged. Never raises, never touches the mp4.
@@ -835,6 +848,9 @@ class App(Root):
                             warns.append(f"{os.path.basename(mp4)}: QC {res['status']} - {'; '.join(res['reasons'])}" + (f' (report: {qpath})' if qpath else ''))
                 except Exception:
                     log.error('qc hook failed for %s\n%s', mp4, traceback.format_exc())
+                if used_mode.get('thumbnail_t') is not None:   # the scene asked for a thumbnail (window.THUMBNAIL_T)
+                    th = save_thumbnail(mp4, used_mode['thumbnail_t'], opts['vertical'])
+                    if th: row += ' · thumb'
             done.append(mp4); self.q.put(('row', f, row, dur))
         except rc.Cancelled:
             log.info('cancelled %s', f); self.q.put(('row', f, 'Cancelled', None))

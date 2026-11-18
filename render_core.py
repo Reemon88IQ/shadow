@@ -1,5 +1,5 @@
 """Shadow rendering engine: HTML scene -> frames -> audio -> MP4. No GUI code here."""
-VERSION = "3.5"
+VERSION = "3.6"
 import base64, collections, functools, urllib.parse, http.server, os, shutil, subprocess, sys, tempfile, threading, time, wave, array
 
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -53,6 +53,33 @@ def _ff(cmd):
 CAPTURE_JS = {'png': '"image/png"', 'jpeg': '"image/jpeg", 0.98'}   # toDataURL arguments
 CAPTURE_CODEC = {'png': 'png', 'jpeg': 'mjpeg'}                         # ffmpeg decoder for the piped frames
 
+AUDIO_TARGET_LUFS, AUDIO_TP_MAX = -15.0, -1.2   # final mp4 audio: QC allows -17..-13 LUFS and true peak <= -1 dBTP
+
+def _loud(ffmpeg, path):
+    """(integrated LUFS, true peak dBTP) of an audio/video file (ffmpeg ebur128, 4x oversampled true peak)."""
+    import re
+    r = subprocess.run([ffmpeg, '-hide_banner', '-nostats', '-i', path, '-af', 'ebur128=peak=true', '-f', 'null', '-'],
+                       capture_output=True, creationflags=NOWIN).stderr.decode('utf-8', 'replace')
+    i = re.findall(r'I:\s*(-?[\d.]+) LUFS', r); tp = re.search(r'True peak:\s*Peak:\s*(-?[\d.]+|-inf)', r)
+    return (float(i[-1]) if i else None), (float(tp.group(1)) if tp and tp.group(1) != '-inf' else None)
+
+def finalize_audio(ffmpeg, wav, tmp, aac=('-c:a', 'aac', '-b:a', '192k')):
+    """Make the mp4's audio land inside the QC limits AFTER the AAC encode: encode a trial AAC, measure it, and turn the
+    wav down by exactly what is needed (never up) - loudness to AUDIO_TARGET_LUFS when it is louder, true peak to
+    AUDIO_TP_MAX. Measured on a loud song: the limiter gives -1.4 dBTP, but AAC 192k added +1.4 dB (0.0 dBTP) and
+    single-pass loudnorm left -13.6 LUFS. Returns the wav to mux (a new file when it was turned down)."""
+    cur = wav
+    for k in range(3):
+        trial = os.path.join(tmp, f'trial{k}.m4a')
+        if subprocess.run([ffmpeg, '-v', 'error', '-y', '-i', cur, *aac, trial], capture_output=True, creationflags=NOWIN).returncode: return cur
+        lufs, tp = _loud(ffmpeg, trial)
+        if lufs is None or tp is None: return cur
+        gain = min(0.0, AUDIO_TARGET_LUFS - lufs if lufs > AUDIO_TARGET_LUFS + 0.3 else 0.0, AUDIO_TP_MAX - tp if tp > AUDIO_TP_MAX else 0.0)
+        if gain > -0.05: return cur
+        nxt = os.path.join(tmp, f'final{k}.wav')
+        _ff([ffmpeg, '-y', '-i', cur, '-af', f'volume={gain:.2f}dB', '-c:a', 'pcm_s16le', nxt]); cur = nxt
+    return cur
+
 def _part_path(out_mp4):
     """The file ffmpeg writes while rendering; renamed to out_mp4 only when everything succeeded."""
     root, ext = os.path.splitext(os.path.abspath(out_mp4))
@@ -98,7 +125,10 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
             if info is not None: info['sound'] = sound; info['capture'] = capture
             dur = pg.evaluate('window.DURATION'); n = round(dur * fps)
             if max_frames: n = min(n, max_frames)
-            if info is not None: info['scene_duration'] = dur; info['duration'] = n / fps   # scene length / length actually rendered
+            if info is not None:
+                info['scene_duration'] = dur; info['duration'] = n / fps   # scene length / length actually rendered
+                th = pg.evaluate('typeof window.THUMBNAIL_T === "number" ? window.THUMBNAIL_T : null')   # optional: thumbnail moment (s)
+                if th is not None: info['thumbnail_t'] = max(0.0, min(float(th), n / fps - 1 / fps))
             if cancel is not None and cancel.is_set(): raise Cancelled()
 
             # 1) sound first: ffmpeg needs the finished audio file as its second input before the frames start flowing
@@ -118,6 +148,8 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
                 progress('audio', 0, 1)
                 # loudness-match the external track, true-peak limit it, pad with silence if it is shorter than the video
                 _ff([ffmpeg, '-y', '-i', audio_file, '-af', EXT_AUDIO_AF, '-ar', '48000', '-t', str(n / fps), aud])
+            if sound != 'none':   # measured after a trial AAC encode: turn down until the mp4 will pass QC (true peak, loudness)
+                aud = finalize_audio(ffmpeg, aud, tmp)
 
             # 2) frames -> ffmpeg's stdin, encoded while the next frames render. -nostats + a reader thread on stderr:
             # ffmpeg can never block on a full stderr pipe (that would hang a long render).
