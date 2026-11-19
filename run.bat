@@ -1,3 +1,4 @@
 @echo off
 cd /d "%~dp0"
-start "" pythonw app.py
+start "" python
+w app.py
