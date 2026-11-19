@@ -21,8 +21,7 @@
   <a href="#quick-start">Quick start</a> &nbsp;·&nbsp;
   <a href="#features">Features</a> &nbsp;·&nbsp;
   <a href="#use-shadow-from-claude-mcp">Claude (MCP)</a> &nbsp;·&nbsp;
-  <a href="CHANGELOG.md">Changelog</a> &nbsp;·&nbsp;
-  <a href="#بالعربي">بالعربي</a>
+  <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 <p align="center">
@@ -134,24 +133,3 @@ Release (maintainer): double-click `publish_update.bat` (asks the new version an
 
 [MIT](LICENSE). Shadow uses Google Chrome (via Playwright), ffmpeg and, for `.blend` files, Blender - all installed
 separately under their own licenses. Videos you make with Shadow are yours.
-
----
-
-## بالعربي
-
-**Shadow** برنامج مجاني لويندوز يحوّل المشاهد المسوّاة بالكود (HTML: three.js أو canvas) أو بـ Blender لفيديوهات MP4
-بدقة 1080p و30 إطار ويا الصوت، بصيغة 16:9 لليوتيوب و9:16 للشورتس.
-
-**التنصيب:** نزّل `Shadow-<version>-Setup.exe` من [Releases](../../releases/latest) وشغّله. ما يحتاج صلاحيات أدمن.
-إذا طلع تحذير SmartScreen اضغط *More info* وبعدها *Run anyway*. المنصّب يعرض ينصّب Chrome وffmpeg إذا ناقصين.
-لما ينزل إصدار جديد يطلعلك زر **Update** داخل البرنامج.
-
-**الاستخدام:** اسحب ملفات `.html` أو `.blend` للبرنامج، اختار الجودة والصيغة والصوت ومجلد الحفظ، واضغط **Render**.
-كل مشهد ينحفظ بمجلد خاص بيه، ويا الفيديو تقرير فحص جودة. الملفات اللي اسمها يبدي بـ `short_` أو ينتهي بـ `-short`
-تطلع شورت (9:16) وحدها.
-
-**ربطه ويا Claude:** Claude يگدر يرندر بـ Shadow ويتابع التقدّم ويقرا تقرير الجودة بدون ما تفتح البرنامج. مجاني ويشتغل على
-حاسبتك بس. يحتاج نسخة من هذا الكود ويا بايثون (مو البرنامج المنصّب وحده). الخطوات بقسم
-[Use Shadow from Claude (MCP)](#use-shadow-from-claude-mcp)، والشرح الكامل بـ [docs/MCP.md](docs/MCP.md).
-
-**مشكلة أو فكرة؟** [افتح بلاغ](../../issues/new/choose).

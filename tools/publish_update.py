@@ -147,8 +147,7 @@ def build_and_publish(new, notes, t0):
         f.write(f'{notes}\n\n'
                 f'**Install:** download `Shadow-{new}-Setup.exe` below and run it (no admin needed; if Windows SmartScreen warns, '
                 f'choose *More info* -> *Run anyway*). **Already installed?** Open Shadow and press **Update to v{new}**.\n\n'
-                f'All changes: [CHANGELOG.md](https://github.com/Reemon88IQ/shadow/blob/main/CHANGELOG.md)\n\n'
-                f'**التنصيب:** نزّل `Shadow-{new}-Setup.exe` وشغّله، أو إذا منصّب عندك افتح Shadow واضغط **Update to v{new}**.\n')
+                f'All changes: [CHANGELOG.md](https://github.com/Reemon88IQ/shadow/blob/main/CHANGELOG.md)\n')
     try: ok = run('release.bat < nul', shell=True)
     finally:
         try: os.remove(notes_file)
