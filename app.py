@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import render_core as rc
+import blender_core as bc
 import qc
 import updater
 
@@ -28,6 +29,8 @@ LOG = os.path.join(os.path.dirname(CFG), 'shadow.log')
 LOG_DIR = os.path.join(os.path.dirname(LOG), 'logs')   # fallback only: a failure log normally goes into the scene's own output folder
 LIGHT_TINT = 39   # Light theme = light gray: sv-ttk's near-white (#fafafa) darkened by this much, for the window and its images alike
 LIGHT_BG = LIGHT_FIELD = '#%02x%02x%02x' % ((250 - LIGHT_TINT,) * 3)   # #d3d3d3 (owner's choice)
+SCENE_EXTS = ('.html', '.htm') + bc.EXTS   # HTML (three.js) scenes and Blender .blend scenes
+BLENDER_ENGINES = list(bc.ENGINES.values())   # GUI labels: Scene setting / Eevee / Cycles (GPU) / Workbench (fast)
 SOUNDS = ['Generated (built into the scene)', 'None (silent)', 'External file...', 'Auto (file next to scene)']
 SONG_EXTS = ('.wav', '.mp3', '.m4a', '.flac', '.ogg', '.aac')   # Auto: <scene>.<ext> next to the .html, first one found wins
 OUTDATED = 'This scene is outdated and does not support 9:16'
@@ -67,8 +70,14 @@ def system_theme():
     try: return 'dark' if (darkdetect.theme() or '').lower() == 'dark' else 'light'
     except Exception: return 'light'
 
+def blender_engine(label):
+    """Blender combobox label -> blender_core engine key ('scene' | 'eevee' | 'cycles' | 'workbench')."""
+    return next((k for k, v in bc.ENGINES.items() if v == label), 'scene')
+
 def scene_info(path):
-    """What the scene source supports: 9:16 needs it to read the h URL param (get('h')). Sound is checked at render time."""
+    """What the scene source supports: 9:16 needs it to read the h URL param (get('h')). Sound is checked at render time.
+    A .blend always 'supports' 9:16: it uses its 9:16 camera, or the 16:9 camera centre-cropped (warned at render time)."""
+    if bc.is_blend(path): return {'vertical': True, 'blender': True}
     try:
         with open(path, encoding='utf-8', errors='replace') as f: src = f.read()
     except Exception:
@@ -104,7 +113,7 @@ def find_scene_audio(scene_path):
     """Auto mode: the audio file with the scene's base name next to it (.wav, .mp3, .m4a, .flac, .ogg, .aac, in that
     order), or None. <scene>.wav together with <scene>.words.json is a narration voice, not a song, so it is skipped."""
     base = os.path.splitext(scene_path)[0]
-    voice = os.path.isfile(base + '.words.json')
+    voice = os.path.isfile(base + '.words.json') and not bc.is_blend(scene_path)   # a .blend has no captions: its <scene>.wav is just its sound
     for ext in SONG_EXTS:
         if ext == '.wav' and voice: continue
         for e in (ext, ext.upper()):
@@ -218,6 +227,10 @@ def render_item(scene, mp4, preset, opts, narr=None, cancel=None, progress=lambd
     """Render one queue item. Without narration this is exactly rc.render(scene, ...). With narration: check cancel,
     build the hidden temp scene, force sound='generated' (the voice is mixed inside the page's SOUND kit), render it
     to mp4 (the name comes from the caller, i.e. the original scene) and always delete the temp file."""
+    opts = dict(opts); bl = {k: opts.pop(k) for k in ('engine', 'device', 'allow_scripts') if k in opts}   # Blender-only settings
+    if bc.is_blend(scene):   # Blender scene: same contract as rc.render (folders, audio rules, QC all the same)
+        if narr: raise ValueError('narration with word captions works for HTML scenes only; for a .blend put the voice in its sound')
+        return bc.render(scene, mp4, preset, progress=progress, cancel=cancel, info=info, **opts, **bl)
     if not narr:
         return rc.render(scene, mp4, preset, progress=progress, cancel=cancel, info=info, **opts)
     if cancel is not None and cancel.is_set(): raise rc.Cancelled()
@@ -231,6 +244,114 @@ def render_item(scene, mp4, preset, opts, narr=None, cancel=None, progress=lambd
         return rc.render(tmp, mp4, preset, progress=progress, cancel=cancel, info=info, **opts)
     finally:
         if tmp: remove_with_retries(tmp)
+
+def render_scene(f, preset, out, opts, narr=None, cancel=None, progress=lambda *_: None, used=None, embedded=False,
+                 fmt_name=None, warns=None):
+    """Render ONE queue item exactly as the GUI queue does (App._run_one and tools/mcp_server.py both call this):
+    <out>\\<scene name>\\<scene>.mp4 (or _shorts.mp4), never overwriting; Format Auto and Sound Auto per file; narration
+    forces generated sound; ffprobe size/audio check; QC report; thumbnail; failure log in the scene folder; an empty folder
+    left by a cancelled item is removed. Never raises (cancel / errors come back in the result).
+    f: the ORIGINAL scene; opts: dict(vertical, format, sound, audio_file, capture) like App.opts; used: set of mp4 paths
+    already given out in this batch; embedded: the scene already contains narration; warns: list the warnings are added to.
+    Returns dict(status='done'|'cancelled'|'error', row (the Status column text), mp4, dur, error (one line + log path),
+    log, qc (qc result or None), qc_report, thumb, sound (mode actually used), vertical, warns)."""
+    warns = [] if warns is None else warns; used = set() if used is None else used
+    opts = dict(opts); used_mode = {}
+    fmt_name = fmt_name or opts.get('format') or '16:9 (YouTube)'
+    if opts.get('format') == FORMAT_AUTO:   # Format = Auto (by file name): 9:16 for short_*.html, 16:9 for the rest
+        opts['vertical'] = format_vertical(f, FORMAT_AUTO)
+        fmt_name = '9:16 (Shorts)' if opts['vertical'] else '16:9 (YouTube)'
+    opts.pop('format', None)   # render_item / render_core do not take it
+    opts['vertical'] = bool(opts.get('vertical'))
+    base = scene_folder_name(f); folder = os.path.join(out, base)
+    name = base + ('_shorts' if opts['vertical'] else '')
+    mp4 = unique_path(os.path.join(folder, name + '.mp4'), used)   # never overwrite: not a file on disk, not one from this batch
+    used.add(mp4)
+    res = dict(status='error', row='Error', mp4=mp4, dur=None, error=None, log=None, qc=None, qc_report=None, thumb=None,
+               sound=None, vertical=opts['vertical'], warns=warns)
+    created = False
+    if narr and opts['sound'] not in ('generated', 'auto'):   # the voice lives in the page's own sound: External file / None would drop it
+        warns.append(f'{os.path.basename(f)}: narration needs generated sound, used Generated for this file.')
+    if narr:
+        opts['sound'] = 'generated'; opts['audio_file'] = None
+    elif opts['sound'] == 'auto':   # per scene: <scene>.mp3/.wav/... next to it, else the scene's own sound (warned)
+        ra = resolve_audio(f, 'auto', narrated=embedded)
+        opts['sound'], opts['audio_file'] = ra['sound'], ra['audio_file']
+        if ra['warn']: warns.append(ra['warn'])
+        log.info('auto audio for %s: %s', f, ra['audio_file'] or ra['label'])
+    stopped = lambda: cancel is not None and cancel.is_set()
+    try:
+        created = not os.path.isdir(folder)
+        os.makedirs(folder, exist_ok=True)
+        log.info('render %s -> %s%s', f, mp4, ' (with narration)' if narr else '')
+        render_item(f, mp4, preset, opts, narr=narr, cancel=cancel, progress=progress, info=used_mode, warns=warns)
+        warns.extend(f'{os.path.basename(f)}: {w}' for w in used_mode.get('warnings', []))   # Blender: missing files, no 9:16 camera...
+        silent = opts['sound'] == 'generated' and used_mode.get('sound') == 'none'
+        if silent: warns.append(f'{os.path.basename(f)}: the scene has no sound, rendered silent.'); opts['sound'] = 'none'
+        exp = expected_size(preset, opts['vertical']); pr = probe(mp4)
+        if pr is None:
+            warns.append(f'{os.path.basename(mp4)}: could not check the output (ffprobe missing?).'); dur = None
+        else:
+            dur = fmt(pr[2]) if pr[2] >= 1 else f'{pr[2]:.1f}s'
+            if (pr[0], pr[1]) != exp:
+                warns.append(f'{os.path.basename(mp4)} is {pr[0]}x{pr[1]}, expected {exp[0]}x{exp[1]} for {fmt_name}.')
+            if opts['sound'] != 'none' and not pr[3]:
+                warns.append(f'{os.path.basename(mp4)} has no audio track.')
+        log.info('done %s %s', mp4, pr)
+        row = 'Done (silent)' if silent else 'Done'
+        if not stopped():   # QC: only adds information, never changes Done or the file
+            try:
+                qres, qpath = quality_check(mp4, preset, opts['vertical'], used_mode, opts['sound'])
+                res.update(qc=qres, qc_report=qpath)
+                if qres:
+                    row += f" · QC {qres['status']}"
+                    if qres['status'] != qc.OK:
+                        warns.append(f"{os.path.basename(mp4)}: QC {qres['status']} - {'; '.join(qres['reasons'])}" + (f' (report: {qpath})' if qpath else ''))
+            except Exception:
+                log.error('qc hook failed for %s\n%s', mp4, traceback.format_exc())
+            if used_mode.get('thumbnail_t') is not None:   # the scene asked for a thumbnail (window.THUMBNAIL_T)
+                th = save_thumbnail(mp4, used_mode['thumbnail_t'], opts['vertical'])
+                if th: row += ' · thumb'; res['thumb'] = th
+        res.update(status='done', row=row, dur=dur, sound=opts['sound'])
+    except rc.Cancelled:
+        log.info('cancelled %s', f); res.update(status='cancelled', row='Cancelled')
+    except Exception as e:
+        tb = traceback.format_exc()
+        log.error('failed %s\n%s', f, tb)
+        flog = write_failure_log(f, mp4, preset, opts, e, tb, log_dir=folder if os.path.isdir(folder) else None)
+        first = (str(e).strip().splitlines() or [type(e).__name__])[0].replace('Page.evaluate: ', '')
+        res.update(status='error', row='Error', log=flog, error=f'{os.path.basename(f)}: {first}' + (f'\nLog: {flog}' if flog else ''))
+    finally:
+        if created:   # a folder this item made and left empty (cancelled before anything was written) is removed again
+            try: os.rmdir(folder)   # only succeeds when empty
+            except OSError: pass
+    return res
+
+def narration_problem(scene, wav, words, style='pop'):
+    """Why this narration cannot be attached to scene (an error string), or None. The checks App.set_narration uses
+    (wav and words.json readable and well-formed, style, the scene not narrated already, a Shadow scene with SOUND/seek)."""
+    if bc.is_blend(scene): return 'narration with word captions works for HTML scenes only (a .blend uses <scene>.wav as its sound)'
+    try:
+        if not wav or not os.path.isfile(wav): return f'narration WAV not found: {wav}'
+        if not words: return 'no words.json given'
+        if isinstance(words, str):
+            if not os.path.isfile(words): return f'words file not found: {words}'
+            try:
+                with open(words, encoding='utf-8') as fh: wj = json.load(fh)
+            except (OSError, ValueError) as e: return f'words file could not be read: {e}'
+        else:
+            wj = words
+        wl = wj['words'] if isinstance(wj, dict) and 'words' in wj else wj
+        if not isinstance(wl, list) or not wl or not all(isinstance(x, dict) and {'w', 's', 'e'} <= set(x) for x in wl):
+            return 'words must be a non-empty list of {"w","s","e"} (or {"words": [...]})'
+        mod = narrate_module()
+        if style not in mod.STYLES: return f'style must be one of {", ".join(mod.STYLES)}, got {style!r}'
+        with open(scene, encoding='utf-8') as fh: html = fh.read()
+        if mod.is_narrated(html): return f'{os.path.basename(scene)} already has narration built in'
+        if 'SOUND' not in html or 'seek' not in html: return f'{os.path.basename(scene)} is not a Shadow scene with a SOUND kit'
+        return None
+    except Exception as e:
+        log.exception('narration_problem'); return f'{type(e).__name__}: {e}'
 
 def save_thumbnail(mp4, t, vertical):
     """<name>_thumb.jpg next to the mp4: the frame at t seconds, 1280x720 (720x1280 for 9:16), as YouTube wants.
@@ -328,6 +449,7 @@ class App(Root):
         self.open_when_done = tk.BooleanVar(value=cfg.get('open', True))
         f = cfg.get('format'); self.fmt = tk.StringVar(value=f if f in FORMAT_CHOICES else '16:9 (YouTube)')
         c = cfg.get('capture'); self.capture = tk.StringVar(value=c if c in CAPTURES else next(iter(CAPTURES)))
+        e = cfg.get('blender_engine'); self.bl_engine = tk.StringVar(value=e if e in BLENDER_ENGINES else BLENDER_ENGINES[0])
         s = cfg.get('sound'); self.snd = tk.StringVar(value=s if s in SOUNDS else SOUNDS[0]); self.snd_file = tk.StringVar(value=cfg.get('sound_file', ''))
         self.protocol('WM_DELETE_WINDOW', self.on_close)
         self.apply_theme()
@@ -422,7 +544,7 @@ class App(Root):
         # compact setup status bar
         env = ttk.Frame(self); env.pack(fill='x', padx=P)
         self.env_lbls = {}
-        for k in ('Chrome', 'ffmpeg', 'playwright'):
+        for k in ('Chrome', 'ffmpeg', 'playwright', 'Blender'):
             dot = ttk.Label(env, text='●'); dot.pack(side='left'); txt = ttk.Label(env, text=k); txt.pack(side='left', padx=(3, 14))
             self.env_lbls[k] = (dot, txt)
         ttk.Button(env, text='Install missing', command=self.install_missing).pack(side='right')
@@ -432,7 +554,7 @@ class App(Root):
         card = ttk.LabelFrame(self, text='Scenes', padding=10); card.pack(fill='both', expand=True, padx=P, pady=10)
         dz = ttk.Frame(card, style='Card.TFrame', padding=14, cursor='hand2'); dz.pack(fill='x')
         self.drop = ttk.Label(dz, anchor='center', cursor='hand2', font='SunValleyBodyLargeFont',
-                              text=('⤓   Drop .html scenes here, or click to browse' if HAS_DND else 'Click to add .html scenes'))
+                              text=('⤓   Drop .html or .blend scenes here, or click to browse' if HAS_DND else 'Click to add .html or .blend scenes'))
         self.drop.pack(fill='x')
         for w in (dz, self.drop): w.bind('<Button-1>', lambda e: self.add())
         self.dz = dz
@@ -460,16 +582,17 @@ class App(Root):
         # options
         op = ttk.LabelFrame(self, text='Options', padding=10); op.pack(fill='x', padx=P)
         rows = (('Quality', self.preset, list(rc.PRESETS)), ('Format', self.fmt, FORMAT_CHOICES), ('Sound', self.snd, SOUNDS),
-                ('Capture', self.capture, list(CAPTURES)))
+                ('Capture', self.capture, list(CAPTURES)), ('Blender', self.bl_engine, BLENDER_ENGINES))
         for r, (lbl, var, vals) in enumerate(rows):
             ttk.Label(op, text=lbl).grid(row=r, column=0, sticky='w', pady=3)
             ttk.Combobox(op, textvariable=var, values=vals, state='readonly', width=32).grid(row=r, column=1, sticky='w', padx=10, pady=3)
         self.snd.trace_add('write', self.on_sound)
         self.fmt.trace_add('write', lambda *_: self.refresh_audio())   # the Format column follows the Format setting
         ttk.Label(op, textvariable=self.snd_file, foreground='#888').grid(row=2, column=2, columnspan=2, sticky='w')
-        ttk.Label(op, text='Save to').grid(row=4, column=0, sticky='w', pady=3)
-        ttk.Entry(op, textvariable=self.out_dir).grid(row=4, column=1, columnspan=2, sticky='we', padx=10, pady=3)
-        ttk.Button(op, text='Browse...', command=self.pick_out).grid(row=4, column=3, sticky='e')
+        ttk.Label(op, text='.blend scenes only (GPU: OptiX/CUDA when found)', foreground='#888').grid(row=4, column=2, columnspan=2, sticky='w')
+        ttk.Label(op, text='Save to').grid(row=5, column=0, sticky='w', pady=3)
+        ttk.Entry(op, textvariable=self.out_dir).grid(row=5, column=1, columnspan=2, sticky='we', padx=10, pady=3)
+        ttk.Button(op, text='Browse...', command=self.pick_out).grid(row=5, column=3, sticky='e')
         op.columnconfigure(2, weight=1)
 
         # progress
@@ -548,16 +671,17 @@ class App(Root):
 
     # ------------------------------------------------------------------ setup
     def check(self):
-        e = rc.check_env(); self.env = e
-        for k, ok in (('Chrome', e['chrome']), ('ffmpeg', e['ffmpeg']), ('playwright', e['playwright'])):
+        e = rc.check_env(); self.env = e; self.blender = bc.find_blender()
+        for k, ok in (('Chrome', e['chrome']), ('ffmpeg', e['ffmpeg']), ('playwright', e['playwright']), ('Blender', bool(self.blender))):
             dot, txt = self.env_lbls[k]
-            dot.config(foreground='#3fb950' if ok else '#f85149'); txt.config(text=k if ok else f'{k} (missing)')
+            dot.config(foreground='#3fb950' if ok else '#f85149' if k != 'Blender' else '#888'); txt.config(text=k if ok else f'{k} (missing)' if k != 'Blender' else 'Blender (not found, only for .blend)')
     def install_missing(self):
         cmds = []
         frozen = getattr(sys, 'frozen', False)  # in Shadow.exe the python packages are bundled; sys.executable is the exe
         if not frozen and (not self.env['playwright'] or not HAS_DND or not sv_ttk): cmds.append(f'"{sys.executable}" -m pip install playwright tkinterdnd2 sv-ttk darkdetect')
         if not self.env['ffmpeg']: cmds.append('winget install -e --id Gyan.FFmpeg')
         if not self.env['chrome']: cmds.append('winget install -e --id Google.Chrome')
+        if not getattr(self, 'blender', None) and any(bc.is_blend(f) for f in self.files): cmds.append('winget install -e --id BlenderFoundation.Blender')
         if not cmds:
             messagebox.showinfo('Setup', 'Everything is installed.'); return
         subprocess.Popen('cmd /c "' + ' && '.join(cmds) + ' && echo. && echo Done. Close this window and restart the app. && pause"', creationflags=getattr(subprocess, 'CREATE_NEW_CONSOLE', 0))
@@ -567,13 +691,14 @@ class App(Root):
     def on_drop(self, ev):
         for f in self.tk.splitlist(ev.data): self._add(f)
     def add(self):
-        for f in filedialog.askopenfilenames(filetypes=[('HTML scene', '*.html *.htm')]): self._add(f)
+        for f in filedialog.askopenfilenames(filetypes=[('Scene', '*.html *.htm *.blend'), ('HTML scene', '*.html *.htm'), ('Blender scene', '*.blend')]): self._add(f)
     def _add(self, f):
         f = os.path.normpath(f)
-        if f.lower().endswith(('.html', '.htm')) and f not in self.files:
+        if f.lower().endswith(SCENE_EXTS) and f not in self.files:
             with self.lock:   # while a batch runs, a new file joins it and renders after the ones before it
                 self.files.append(f); self.state[f] = 'queued'
             try:   # narration already built into the scene (the tool's own check): marked, never narrated twice
+                if bc.is_blend(f): raise StopIteration   # binary .blend: no HTML narration
                 with open(f, encoding='utf-8', errors='replace') as fh:
                     if narrate_module().is_narrated(fh.read()): self.embedded.add(f)
             except Exception: pass
@@ -641,23 +766,8 @@ class App(Root):
         try:
             f = os.path.normpath(path)
             if f not in self.files: return f'not in the list: {os.path.basename(f)}'
-            if not wav or not os.path.isfile(wav): return f'narration WAV not found: {wav}'
-            if not words: return 'no words.json given'
-            if isinstance(words, str):
-                if not os.path.isfile(words): return f'words file not found: {words}'
-                try:
-                    with open(words, encoding='utf-8') as fh: wj = json.load(fh)
-                except (OSError, ValueError) as e: return f'words file could not be read: {e}'
-            else:
-                wj = words
-            wl = wj['words'] if isinstance(wj, dict) and 'words' in wj else wj
-            if not isinstance(wl, list) or not wl or not all(isinstance(x, dict) and {'w', 's', 'e'} <= set(x) for x in wl):
-                return 'words must be a non-empty list of {"w","s","e"} (or {"words": [...]})'
-            mod = narrate_module()
-            if style not in mod.STYLES: return f'style must be one of {", ".join(mod.STYLES)}, got {style!r}'
-            with open(f, encoding='utf-8') as fh: html = fh.read()
-            if mod.is_narrated(html): return f'{os.path.basename(f)} already has narration built in'
-            if 'SOUND' not in html or 'seek' not in html: return f'{os.path.basename(f)} is not a Shadow scene with a SOUND kit'
+            err = narration_problem(f, wav, words, style)
+            if err: return err
             with self.lock:
                 self.narr[f] = dict(wav=wav, words=words, style=style, yh=yh, gain=gain, captions=captions)
             self._refresh_name(f)
@@ -694,6 +804,8 @@ class App(Root):
     def preview(self):
         sel = self.tree.selection()
         f = next((k for k, v in self.rows.items() if sel and v == sel[0]), self.files[0] if self.files else None)
+        if f and bc.is_blend(f) and getattr(self, 'blender', None):   # open a .blend in the Blender Shadow renders with
+            subprocess.Popen([self.blender, f], creationflags=getattr(subprocess, 'DETACHED_PROCESS', 0)); return
         if f: open_path(f)
 
     # ------------------------------------------------------------------ options
@@ -713,7 +825,7 @@ class App(Root):
         open_path(LOG)
     def save(self):
         save_cfg({'out': self.out_dir.get(), 'preset': self.preset.get(), 'open': self.open_when_done.get(), 'format': self.fmt.get(),
-                  'capture': self.capture.get(), 'sound': self.snd.get(), 'sound_file': self.snd_file.get(), **({'theme': self.theme_choice} if self.theme_choice else {})})
+                  'capture': self.capture.get(), 'blender_engine': self.bl_engine.get(), 'sound': self.snd.get(), 'sound_file': self.snd_file.get(), **({'theme': self.theme_choice} if self.theme_choice else {})})
     def on_close(self):
         self.do_cancel(); self.save()
         try: self.after_cancel(self._poll_id)
@@ -722,9 +834,11 @@ class App(Root):
 
     # ------------------------------------------------------------------ render
     def start(self, ask=messagebox.askyesnocancel):
-        if not self.files: messagebox.showwarning('Render', 'Add at least one .html file.'); return
+        if not self.files: messagebox.showwarning('Render', 'Add at least one .html or .blend scene.'); return
         self.check()
-        miss = [k for k, v in self.env.items() if not v]
+        need = {'ffmpeg'} | ({'chrome', 'playwright'} if any(not bc.is_blend(f) for f in self.files) else set())   # a .blend-only queue needs no Chrome
+        miss = [k for k, v in self.env.items() if not v and k in need]
+        if any(bc.is_blend(f) for f in self.files) and not self.blender: miss.append('Blender (for the .blend scenes)')
         if miss: messagebox.showwarning('Setup', 'Missing: ' + ', '.join(miss) + '. Use "Install missing".'); return
         try: os.makedirs(self.out_dir.get(), exist_ok=True)
         except OSError as e: messagebox.showerror('Save to', str(e)); return
@@ -748,7 +862,7 @@ class App(Root):
             keep = {f for f, _ in jobs}
             for f in self.files: self.state[f] = 'queued' if f in keep else 'skipped'
         self.opts = dict(vertical=vertical, format=fmt_name, sound=mode, audio_file=self.snd_file.get() or None,
-                         capture=CAPTURES.get(self.capture.get(), 'png'))
+                         capture=CAPTURES.get(self.capture.get(), 'png'), engine=blender_engine(self.bl_engine.get()), device='auto')
         self.cancel.clear(); self.go.config(state='disabled'); self.stop.config(state='normal'); self.stop_cur.config(state='normal')
         self.bar['value'] = 0; self.pct.config(text='0%')
         preset = rc.PRESETS[self.preset.get()]
@@ -795,75 +909,17 @@ class App(Root):
         self.q.put(('end', done, failed, warns, self.cancel.is_set()))
 
     def _run_one(self, f, k, n, preset, out, fmt_name, done, failed, warns, used, ev, narr=None):
-        """One file in the worker thread. narr: the copy of this file's narration settings from next_queued (or None)."""
+        """One file in the worker thread. narr: the copy of this file's narration settings from next_queued (or None).
+        The work itself is render_scene() (shared with tools/mcp_server.py); this only feeds the UI queue."""
         if self.cancel.is_set() or ev.is_set():
             self.q.put(('row', f, 'Cancelled', None)); return
-        # every scene gets its own folder <out>\<scene name>\ : the mp4, its .qc.txt and a failure log all live there.
-        # f is always the ORIGINAL scene (a narrated render uses a hidden temp copy only inside render_item).
-        opts = dict(self.opts); used_mode = {}
-        if opts.get('format') == FORMAT_AUTO:   # Format = Auto (by file name): 9:16 for short_*.html, 16:9 for the rest
-            opts['vertical'] = format_vertical(f, FORMAT_AUTO)
-            fmt_name = '9:16 (Shorts)' if opts['vertical'] else '16:9 (YouTube)'
-        opts.pop('format', None)   # render_item / render_core do not take it
-        base = scene_folder_name(f); folder = os.path.join(out, base)
-        name = base + ('_shorts' if opts['vertical'] else '')
-        mp4 = unique_path(os.path.join(folder, name + '.mp4'), used)   # never overwrite: not a file on disk, not one from this batch
-        used.add(mp4)
-        created = False
-        if narr and opts['sound'] not in ('generated', 'auto'):   # the voice lives in the page's own sound: External file / None would drop it
-            warns.append(f'{os.path.basename(f)}: narration needs generated sound, used Generated for this file.')
-        if narr:
-            opts['sound'] = 'generated'; opts['audio_file'] = None
-        elif opts['sound'] == 'auto':   # per scene: <scene>.mp3/.wav/... next to it, else the scene's own sound (warned)
-            ra = resolve_audio(f, 'auto', narrated=f in getattr(self, 'embedded', ()))
-            opts['sound'], opts['audio_file'] = ra['sound'], ra['audio_file']
-            if ra['warn']: warns.append(ra['warn'])
-            log.info('auto audio for %s: %s', f, ra['audio_file'] or ra['label'])
         def prog(stage, a, b, eta=None, k=k, f=f):
             self.q.put(('p', k, n, f, stage, a, b, eta))
-        try:
-            created = not os.path.isdir(folder)
-            os.makedirs(folder, exist_ok=True)
-            log.info('render %s -> %s%s', f, mp4, ' (with narration)' if narr else '')
-            render_item(f, mp4, preset, opts, narr=narr, cancel=ev, progress=prog, info=used_mode, warns=warns)
-            silent = opts['sound'] == 'generated' and used_mode.get('sound') == 'none'
-            if silent: warns.append(f'{os.path.basename(f)}: the scene has no sound, rendered silent.'); opts['sound'] = 'none'
-            exp = expected_size(preset, opts['vertical']); pr = probe(mp4)
-            if pr is None:
-                warns.append(f'{os.path.basename(mp4)}: could not check the output (ffprobe missing?).'); dur = None
-            else:
-                dur = fmt(pr[2]) if pr[2] >= 1 else f'{pr[2]:.1f}s'
-                if (pr[0], pr[1]) != exp:
-                    warns.append(f'{os.path.basename(mp4)} is {pr[0]}x{pr[1]}, expected {exp[0]}x{exp[1]} for {fmt_name}.')
-                if opts['sound'] != 'none' and not pr[3]:
-                    warns.append(f'{os.path.basename(mp4)} has no audio track.')
-            log.info('done %s %s', mp4, pr)
-            row = 'Done (silent)' if silent else 'Done'
-            if not (self.cancel.is_set() or ev.is_set()):   # QC: only adds information, never changes Done or the file
-                try:
-                    res, qpath = quality_check(mp4, preset, opts['vertical'], used_mode, opts['sound'])
-                    if res:
-                        row += f" · QC {res['status']}"
-                        if res['status'] != qc.OK:
-                            warns.append(f"{os.path.basename(mp4)}: QC {res['status']} - {'; '.join(res['reasons'])}" + (f' (report: {qpath})' if qpath else ''))
-                except Exception:
-                    log.error('qc hook failed for %s\n%s', mp4, traceback.format_exc())
-                if used_mode.get('thumbnail_t') is not None:   # the scene asked for a thumbnail (window.THUMBNAIL_T)
-                    th = save_thumbnail(mp4, used_mode['thumbnail_t'], opts['vertical'])
-                    if th: row += ' · thumb'
-            done.append(mp4); self.q.put(('row', f, row, dur))
-        except rc.Cancelled:
-            log.info('cancelled %s', f); self.q.put(('row', f, 'Cancelled', None))
-        except Exception as e:
-            tb = traceback.format_exc()
-            log.error('failed %s\n%s', f, tb)
-            flog = write_failure_log(f, mp4, preset, opts, e, tb, log_dir=folder if os.path.isdir(folder) else None)
-            first = (str(e).strip().splitlines() or [type(e).__name__])[0].replace('Page.evaluate: ', '')
-            failed.append(f'{os.path.basename(f)}: {first}' + (f'\nLog: {flog}' if flog else '')); self.q.put(('row', f, 'Error', None))
-        finally:
-            if created:   # a folder this item made and left empty (cancelled before anything was written) is removed again
-                try: os.rmdir(folder)   # only succeeds when empty
-                except OSError: pass
+        r = render_scene(f, preset, out, self.opts, narr=narr, cancel=ev, progress=prog, used=used,
+                         embedded=f in getattr(self, 'embedded', ()), fmt_name=fmt_name, warns=warns)
+        if r['status'] == 'done': done.append(r['mp4'])
+        elif r['status'] == 'error': failed.append(r['error'])
+        self.q.put(('row', f, r['row'], r['dur']))
 
     def poll(self):
         try:
@@ -969,14 +1025,16 @@ def cli(argv):
     ap.add_argument('--vertical', action='store_true'); ap.add_argument('--silent', action='store_true')
     ap.add_argument('--preset', default='best', choices=['draft', 'good', 'best'])
     ap.add_argument('--fast', action='store_true', help='Fast capture (JPEG frames, about 2x faster)')
+    ap.add_argument('--engine', default='scene', choices=list(bc.ENGINES), help='.blend only: render engine (default: the scene setting)')
     a = ap.parse_args(argv)
     preset = next(v for k, v in rc.PRESETS.items() if k.lower().startswith(a.preset))
     scene, out = (os.path.abspath(x) for x in a.render)
     log.info('cli render %s -> %s preset=%s vertical=%s', scene, out, a.preset, a.vertical)
     try:
         used = {}
-        rc.render(scene, out, preset, vertical=a.vertical, sound='none' if a.silent else 'generated', info=used,
-                  capture='jpeg' if a.fast else 'png')
+        opts = dict(vertical=a.vertical, sound='none' if a.silent else 'generated', capture='jpeg' if a.fast else 'png')
+        if bc.is_blend(scene): bc.render(scene, out, preset, info=used, engine=a.engine, **opts)
+        else: rc.render(scene, out, preset, info=used, **opts)
         pr = probe(out); exp = expected_size(preset, a.vertical)
         log.info('cli done %s %s sound=%s expected=%s', out, pr, used.get('sound'), exp)
         try:   # QC is information only: the exit code below does not depend on it
