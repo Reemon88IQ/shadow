@@ -11,7 +11,7 @@ except Exception: pass
 import updater
 
 TESTS = ['test_queue_logic', 'test_qc_parse', 'test_updater', 'test_theme', 'test_capture', 'test_make_words', 'test_narrate_build', 'test_audio_encode',
-         'test_qc_run', 'test_narrate_render', 'regression', 'test_queue_gui']   # quick ones first (the CLAUDE.md list)
+         'test_qc_run', 'test_narrate_render', 'regression', 'test_queue_gui', 'test_queue_extras', 'test_assistant']   # quick ones first (the CLAUDE.md list)
 VER_RE = re.compile(r'^VERSION = "([^"]+)"', re.M)
 
 

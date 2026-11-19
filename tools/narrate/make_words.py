@@ -6,6 +6,8 @@ Usage: python tools/narrate/make_words.py voice.wav [script.txt] [-o voice.words
 Output: {"duration": s, "words": [{"w", "s", "e"}, ...], "source": "faster-whisper <model>"} - what Shadow's narration reads.
 Also writes <out>.srt subtitles next to it (lines of max 42 characters / 3.5 s)."""
 import argparse, difflib, json, os, re, sys, wave
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from subtitles import srt  # noqa: E402  (shared with the app: narrated renders get a .srt too)
 
 
 def transcribe(wav, model_name='small.en', cpu=False):
@@ -45,20 +47,6 @@ def fit_script(script, rec):
         else: i += 1
     matched = sum(1 for blk in difflib.SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks() for _ in range(blk.size))
     return [{'w': w, 's': t[0], 'e': t[1]} for w, t in zip(words, times)], matched / max(len(words), 1)
-
-
-def srt(words, max_chars=42, max_dur=3.5):
-    """Subtitle lines from word timings: break at sentence ends, max_chars or max_dur."""
-    def ts(t):
-        ms = int(round(t * 1000)); return f'{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}'
-    lines, cur = [], []
-    for w in words:
-        if cur and (len(' '.join(x['w'] for x in cur + [w])) > max_chars or w['e'] - cur[0]['s'] > max_dur):
-            lines.append(cur); cur = []
-        cur.append(w)
-        if re.search(r'[.!?]["\')\]]?$', w['w']): lines.append(cur); cur = []
-    if cur: lines.append(cur)
-    return ''.join(f"{i}\n{ts(l[0]['s'])} --> {ts(l[-1]['e'])}\n{' '.join(x['w'] for x in l)}\n\n" for i, l in enumerate(lines, 1))
 
 
 def main():

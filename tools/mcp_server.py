@@ -1,10 +1,12 @@
 """Shadow MCP server: lets Claude (Claude Code, Claude Desktop, any MCP client) render Shadow scenes directly.
 
-Local and free: stdio transport, no network, no API keys. It does NOT need the Shadow window - it imports app.py /
+Local and free: stdio transport (optional HTTP on 127.0.0.1 only), no API keys. It does NOT need the Shadow window - it imports app.py /
 render_core.py and renders with the same code as the GUI queue (app.render_scene -> render_item -> render_core.render,
 resolve_audio, format_vertical, quality_check), so the files, folders, QC reports and warnings are the ones Shadow makes.
 
 Run:   python tools/mcp_server.py            (an MCP client starts it; it talks MCP on stdin/stdout)
+       python tools/mcp_server.py --http [--port 8765]   optional: streamable HTTP at http://127.0.0.1:8765/mcp, for clients
+                                                         that take a URL. Localhost only, off unless started like this.
 Test:  python tests/test_mcp_server.py
 Tools: shadow_info, shadow_plan, shadow_render, shadow_progress, shadow_cancel, shadow_jobs, shadow_check_frames,
        shadow_qc, shadow_outputs. Renders run one at a time in a background thread (jobs queue up); shadow_render
@@ -36,28 +38,7 @@ def default_out_dir():
     """The GUI's "Save to" folder (~/.shadow_renderer.json 'out'), else ~/Videos - like Shadow's first start."""
     return app.load_cfg().get('out') or os.path.join(os.path.expanduser('~'), 'Videos')
 
-def collect_scenes(paths, recursive=False):
-    """.html/.htm and .blend scenes from files and folders (a folder: its scenes, sorted; recursive=True also subfolders).
-    Shadow's hidden .shadow_narr_* temp scenes and other dot-files are skipped. Returns (scenes, problems)."""
-    if isinstance(paths, str): paths = [paths]
-    out, problems = [], []
-    for p in paths or []:
-        p = os.path.normpath(os.path.abspath(os.path.expanduser(p)))
-        if os.path.isdir(p):
-            pat = os.path.join(p, '**', '*') if recursive else os.path.join(p, '*')
-            found = sorted(f for f in glob.glob(pat, recursive=recursive)
-                           if f.lower().endswith(app.SCENE_EXTS) and os.path.isfile(f) and not os.path.basename(f).startswith('.'))
-            if not found: problems.append(f'no .html or .blend scenes in folder: {p}')
-            out += found
-        elif os.path.isfile(p) and p.lower().endswith(app.SCENE_EXTS):
-            out.append(p)
-        else:
-            problems.append(f'not a scene file or folder: {p}')
-    seen, uniq = set(), []
-    for f in out:
-        k = os.path.normcase(f)
-        if k not in seen: seen.add(k); uniq.append(f)
-    return uniq, problems
+collect_scenes = app.collect_scenes   # files + folders -> scenes (the GUI's "Add folder..." uses the same function)
 
 def _norm(name, table, what):
     k = str(name or '').strip().lower()
@@ -89,8 +70,10 @@ def plan_scene(f, fmt_label, sound, audio_file=None, narration='auto'):
                 outdated=outdated, folder=app.scene_folder_name(f), kind='blender' if blend else 'html')
 
 def build_plan(paths, out_dir=None, quality='best', format='auto', sound='auto', audio_file=None, capture='png',
-               narration='auto', outdated='skip', recursive=False, engine='scene', device='auto'):
-    """Check the settings and work out every scene's row. Raises ValueError for a bad setting. Pure apart from reading."""
+               narration='auto', outdated='skip', recursive=False, engine='scene', device='auto', skip_up_to_date=False):
+    """Check the settings and work out every scene's row. Raises ValueError for a bad setting. Pure apart from reading.
+    skip_up_to_date: a scene whose <out>/<scene>/<scene>.mp4 is newer than the scene and its audio/narration (and has the
+    preset's size) is not rendered again (status 'Skipped (up to date)', like the GUI option)."""
     q = _norm(quality, QUALITY, 'quality'); fm = _norm(format, FORMAT, 'format')
     snd = _norm(sound, SOUND, 'sound'); cap = _norm(capture, CAPTURE, 'capture')
     eng = _norm(engine, ENGINE, 'engine'); dev = _norm(device, DEVICE, 'device')
@@ -102,18 +85,26 @@ def build_plan(paths, out_dir=None, quality='best', format='auto', sound='auto',
     scenes, problems = collect_scenes(paths, recursive)
     out_dir = os.path.abspath(os.path.expanduser(out_dir)) if out_dir else default_out_dir()
     rows = [plan_scene(f, FORMAT[fm], snd, audio_file, narration) for f in scenes]
+    preset = rc.PRESETS[QUALITY[q]]
     for r in rows:
         r['skip'] = bool(r['outdated'] and outdated == 'skip')
         r['status'] = f'Skipped ({app.OUTDATED.lower()})' if r['skip'] else 'Queued'
+        r['up_to_date'] = None
+        if skip_up_to_date and not r['skip']:
+            r['up_to_date'] = app.up_to_date(r['scene'], out_dir, r['vertical'], app.render_deps(r['scene'], dict(sound=snd, audio_file=audio_file), r['narration']),
+                                             expect=app.expected_size(preset, r['vertical']))
+            if r['up_to_date']: r['skip'] = True; r['status'] = app.SKIPPED_UP_TO_DATE
+        r['estimate_s'] = None if r['skip'] else app.estimate_seconds(app.scene_duration_guess(r['scene'], app.find_scene_audio(r['scene']) if snd == 'auto' else audio_file, r['narration']), preset, cap)
     warns = [r['audio_warn'] for r in rows if r['audio_warn'] and not r['skip']]
     warns += [f"{os.path.basename(r['scene'])}: {r['narration_note']}" for r in rows if r['narration_note']]
     if any(r['outdated'] for r in rows):
         warns.append(f"{app.OUTDATED}: " + ', '.join(os.path.basename(r['scene']) for r in rows if r['outdated'])
                      + (' (skipped; outdated="render" renders them anyway)' if outdated == 'skip' else ' (rendered anyway)'))
-    preset = rc.PRESETS[QUALITY[q]]
     opts = dict(vertical=app.format_vertical('', FORMAT[fm]), format=FORMAT[fm], sound=snd, audio_file=audio_file, capture=cap,
-                engine=eng, device=dev)   # engine/device: .blend scenes only (app.render_item drops them for HTML)
-    return dict(out_dir=out_dir, quality=q, preset_name=QUALITY[q], preset=preset, format=fm, sound=snd, capture=cap,
+                engine=eng, device=dev, skip_done=bool(skip_up_to_date))   # engine/device: .blend scenes only (app.render_item drops them for HTML)
+    known = [r['estimate_s'] for r in rows if not r['skip'] and r['estimate_s']]
+    return dict(estimate_s=round(sum(known)) if known else None, not_estimated=sum(1 for r in rows if not r['skip'] and not r['estimate_s']),
+                skip_up_to_date=bool(skip_up_to_date), out_dir=out_dir, quality=q, preset_name=QUALITY[q], preset=preset, format=fm, sound=snd, capture=cap,
                 audio_file=audio_file, narration=narration, outdated=outdated, engine=eng, device=dev, opts=opts, rows=rows, problems=problems, warnings=warns)
 
 
@@ -125,8 +116,8 @@ class Job:
         self.cancel = threading.Event(); self.item_cancel = threading.Event(); self.lock = threading.Lock()
         self.items = [dict(scene=r['scene'], name=r['name'], format=r['format'], audio=r['audio'], status=r['status'],
                            skip=r['skip'], narration=r['narration'], embedded=r['embedded'], stage=None, frames=None,
-                           eta=None, frac=0.0, result=None) for r in plan['rows']]
-        self.warnings = list(plan['warnings']); self.started = self.ended = None; self.current = None
+                           eta=None, frac=0.0, result=None, estimate_s=r.get('estimate_s'), up_to_date=r.get('up_to_date')) for r in plan['rows']]
+        self.warnings = list(plan['warnings']); self.started = self.ended = None; self.current = None; self.spf = None
 
     def run(self):
         with self.lock: self.state = 'running'; self.started = time.time()
@@ -147,14 +138,16 @@ class Job:
             def prog(stage, a, b, eta=None, it=it):
                 with self.lock:
                     it['stage'] = stage; it['frac'] = STAGE_FRAC(stage, a, b); it['eta'] = eta
-                    if stage == 'frames': it['frames'] = [a, b]
+                    if stage == 'frames':
+                        it['frames'] = [a, b]
+                        if eta is not None and b > a and a >= 3: self.spf = eta / (b - a)   # measured: corrects the estimate of the rest
                     it['status'] = STAGE_TEXT[stage] + (f' {a}/{b}' if stage == 'frames' else '')
             warns = []
             r = app.render_scene(it['scene'], self.plan['preset'], self.plan['out_dir'], self.plan['opts'], narr=it['narration'],
                                  cancel=ev, progress=prog, used=used, embedded=it['embedded'], warns=warns)
             with self.lock:
                 it['status'] = r['row'] + (f" ({r['dur']})" if r['dur'] else ''); it['frac'] = 1.0
-                it['result'] = {k: r[k] for k in ('mp4', 'dur', 'error', 'log', 'qc_report', 'thumb', 'sound', 'vertical')}
+                it['result'] = {k: r[k] for k in ('mp4', 'dur', 'error', 'log', 'qc_report', 'thumb', 'srt', 'sound', 'vertical')}
                 it['result']['result'] = r['status']   # done | cancelled | error ('status' stays the GUI's Status column text)
                 it['result']['qc_status'] = (r['qc'] or {}).get('status'); it['result']['qc_reasons'] = (r['qc'] or {}).get('reasons')
                 if r['status'] == 'cancelled': it['result']['mp4'] = None
@@ -170,17 +163,32 @@ class Job:
             items = []
             for it in self.items:
                 d = {k: it[k] for k in ('scene', 'name', 'format', 'audio', 'status', 'frames')}
+                if it['estimate_s'] and not it['result']: d['estimate_s'] = round(it['estimate_s'])
+                if it['up_to_date']: d['mp4'] = it['up_to_date']
                 if it['eta'] is not None and it['stage'] == 'frames' and it['result'] is None: d['eta_s'] = round(it['eta'])
                 if it['result']: d.update(it['result'])
                 items.append(d)
+            # time left for the whole job: the running scene's own ETA + the queued scenes (estimated, with this job's measured speed)
+            left, unknown = 0.0, 0
+            for it in self.items:
+                if it['skip'] or it['result']: continue
+                if cur is it and it['eta'] is not None and it['stage'] == 'frames': left += it['eta'] + 8; continue
+                est = it['estimate_s']
+                if est and self.spf is not None and not bc.is_blend(it['scene']):
+                    est = (est - app.ITEM_OVERHEAD_S) / (app.SEC_PER_FRAME.get(self.plan['capture'], 0.087) * (self.plan['preset']['w'] / 1920) ** 2) * self.spf + app.ITEM_OVERHEAD_S
+                if est: left += est
+                else: unknown += 1
             done = [it for it in self.items if it['result'] and it['result']['result'] == 'done']
             failed = [it for it in self.items if it['result'] and it['result']['result'] == 'error']
+            skipped = [it for it in self.items if it['up_to_date'] or (it['result'] and it['result']['result'] == 'skipped')]
             summary = (('Cancelled. ' if self.state == 'cancelled' else '') + f'{len(done)} done' + (f', {len(failed)} failed' if failed else '')
+                       + (f', {len(skipped)} skipped (up to date)' if skipped else '')
                        if self.state in ('finished', 'cancelled') else
                        f"[{(self.current or 0) + 1}/{len(self.items)}] {os.path.basename(cur['scene'])}: {cur['status']}" if cur else self.state)
             return dict(job_id=self.id, state=self.state, percent=round(pct, 1), summary=summary, out_dir=self.plan['out_dir'],
                         quality=self.plan['quality'], format=self.plan['format'], sound=self.plan['sound'], capture=self.plan['capture'],
                         elapsed_s=round((self.ended or time.time()) - self.started) if self.started else 0,
+                        **(dict(eta_s=round(left), eta=app.eta_text(left, unknown=unknown)) if self.state in ('queued', 'running') else {}),
                         items=items, warnings=list(self.warnings))
 
 
@@ -318,8 +326,9 @@ def build_server():
     def plan_view(plan):
         return dict(out_dir=plan['out_dir'], quality=plan['preset_name'], format=plan['format'], sound=plan['sound'],
                     capture=plan['capture'], audio_file=plan['audio_file'], problems=plan['problems'], warnings=plan['warnings'],
-                    engine=plan['engine'], device=plan['device'],
-                    rows=[dict(scene=r['scene'], name=r['name'], kind=r['kind'], format=r['format'], audio=r['audio'], status=r['status'],
+                    engine=plan['engine'], device=plan['device'], skip_up_to_date=plan['skip_up_to_date'],
+                    estimate_s=plan['estimate_s'], estimate=app.eta_text(plan['estimate_s'] or 0, unknown=plan['not_estimated']),
+                    rows=[dict(scene=r['scene'], name=r['name'], kind=r['kind'], format=r['format'], audio=r['audio'], status=r['status'], estimate_s=r['estimate_s'] and round(r['estimate_s']),
                                output=os.path.join(plan['out_dir'], r['folder'], r['folder'] + ('_shorts' if r['vertical'] else '') + '.mp4'))
                           for r in plan['rows']])
 
@@ -336,18 +345,19 @@ def build_server():
     @mcp.tool()
     def shadow_plan(paths: list[str], out_dir: str = '', quality: str = 'best', format: str = 'auto', sound: str = 'auto',
                     audio_file: str = '', capture: str = 'png', narration: str = 'auto', outdated: str = 'skip',
-                    recursive: bool = False, engine: str = 'scene', device: str = 'auto') -> dict:
+                    recursive: bool = False, engine: str = 'scene', device: str = 'auto', skip_up_to_date: bool = False) -> dict:
         """Dry run: what shadow_render would do with these settings, without rendering (the GUI table: Format, Audio,
-        narration marks, output path, outdated 9:16 scenes, Auto-sound fallbacks). Same parameters as shadow_render."""
+        narration marks, output path, outdated 9:16 scenes, Auto-sound fallbacks, up-to-date scenes, estimated time).
+        Same parameters as shadow_render."""
         try:
-            return plan_view(build_plan(paths, out_dir or None, quality, format, sound, audio_file or None, capture, narration, outdated, recursive, engine, device))
+            return plan_view(build_plan(paths, out_dir or None, quality, format, sound, audio_file or None, capture, narration, outdated, recursive, engine, device, skip_up_to_date))
         except ValueError as e:
             return dict(error=str(e))
 
     @mcp.tool()
     def shadow_render(paths: list[str], out_dir: str = '', quality: str = 'best', format: str = 'auto', sound: str = 'auto',
                       audio_file: str = '', capture: str = 'png', narration: str = 'auto', outdated: str = 'skip',
-                      recursive: bool = False, engine: str = 'scene', device: str = 'auto') -> dict:
+                      recursive: bool = False, engine: str = 'scene', device: str = 'auto', skip_up_to_date: bool = False) -> dict:
         """Start rendering scene .html files and/or whole folders of scenes; returns at once with a job_id.
         out_dir: the "Save to" folder (default: the GUI's). Each scene gets <out_dir>/<scene name>/<scene>.mp4.
         quality: draft (720p) | good (1080p, 24 samples) | best (1080p, 64 samples).
@@ -358,9 +368,12 @@ def build_server():
         outdated: skip | render - scenes without get('h') in a 9:16 render (the GUI asks; here you choose).
         engine (.blend only): scene (its own setting) | eevee | cycles | workbench; device (.blend + Cycles): auto (GPU: OptiX,
         CUDA...) | gpu | cpu. A .blend uses its 9:16 camera ("Camera 9x16") for Shorts and its own sound strips for sound=generated.
+        skip_up_to_date: don't render a scene again whose <scene>.mp4 is newer than the scene and its audio/narration files
+        (the GUI's "Skip scenes already rendered" option; default off here: a render you ask for is a new file, _2, _3...).
+        A narrated scene also gets <video>.srt subtitles next to its mp4 (result 'srt').
         Follow it with shadow_progress(job_id, wait_seconds=50)."""
         try:
-            plan = build_plan(paths, out_dir or None, quality, format, sound, audio_file or None, capture, narration, outdated, recursive, engine, device)
+            plan = build_plan(paths, out_dir or None, quality, format, sound, audio_file or None, capture, narration, outdated, recursive, engine, device, skip_up_to_date)
         except ValueError as e:
             return dict(error=str(e))
         env = rc.check_env(); kinds = {r['kind'] for r in plan['rows'] if not r['skip']}
@@ -369,7 +382,7 @@ def build_server():
         if 'blender' in kinds and not bc.find_blender(): miss.append('Blender (winget install -e --id BlenderFoundation.Blender)')
         if miss: return dict(error='Missing: ' + ', '.join(miss) + '. Install them (Shadow\'s "Install missing" button does it).')
         if not plan['rows']: return dict(error='no scenes to render', problems=plan['problems'])
-        if all(r['skip'] for r in plan['rows']): return dict(error='every scene was skipped (outdated, no 9:16)', plan=plan_view(plan))
+        if all(r['skip'] for r in plan['rows']): return dict(error='every scene was skipped (' + ', '.join(sorted({r['status'] for r in plan['rows']})) + ')', plan=plan_view(plan))
         job = runner().submit(plan)
         return dict(job_id=job.id, queued_behind=sum(1 for j in runner().jobs.values() if j.state in ('queued', 'running') and j is not job),
                     plan=plan_view(plan))
@@ -457,13 +470,41 @@ def fill_windows_env():
     os.environ.update(added)
     return added
 
-def main():
+HTTP_HOST = '127.0.0.1'   # the HTTP mode never listens on another address (no LAN, no internet)
+HTTP_PORT = 8765
+
+
+def parse_args(argv):
+    """[] -> stdio (default). --http [--port N] -> local streamable HTTP at http://127.0.0.1:N/mcp (off unless asked)."""
+    import argparse
+    ap = argparse.ArgumentParser(prog='mcp_server.py', description='Shadow MCP server (stdio by default).')
+    ap.add_argument('--http', action='store_true', help=f'serve MCP over streamable HTTP on {HTTP_HOST} only (for clients that want a URL)')
+    ap.add_argument('--port', type=int, default=HTTP_PORT, help=f'HTTP port (default {HTTP_PORT})')
+    a = ap.parse_args(argv)
+    if not 1 <= a.port <= 65535: ap.error('port must be 1-65535')
+    return a
+
+
+def http_security(port):
+    """Only requests addressed to this machine by name/IP are served (blocks DNS-rebinding from web pages)."""
+    from mcp.server.transport_security import TransportSecuritySettings
+    hosts = [f'127.0.0.1:{port}', f'localhost:{port}']
+    return TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=hosts,
+                                     allowed_origins=[f'http://{h}' for h in hosts])
+
+
+def main(argv=None):
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     added = fill_windows_env()
     if os.environ.get('SHADOW_LOG'): app.LOG = os.environ['SHADOW_LOG']   # tests: keep the real ~/shadow.log untouched
     app.setup_log(); log.propagate = False   # ~/shadow.log only; MCPServer's console handler on stderr would repeat every line
     log.info('mcp server start (Shadow v%s, pid %d)%s', rc.VERSION, os.getpid(), f' - added env {sorted(added)}' if added else '')
     runner()
-    build_server().run('stdio')
+    if args.http:
+        log.info('mcp server: HTTP mode on http://%s:%d/mcp (localhost only)', HTTP_HOST, args.port)
+        build_server().run('streamable-http', host=HTTP_HOST, port=args.port, transport_security=http_security(args.port))
+    else:
+        build_server().run('stdio')
 
 
 if __name__ == '__main__':

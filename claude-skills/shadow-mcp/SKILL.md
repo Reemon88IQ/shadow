@@ -33,6 +33,9 @@ all, the server is not connected: say so and point to `docs/MCP.md` (do not chan
 - `narration`: `auto` (default: `<scene>.wav` + `<scene>.words.json` next to the scene are attached, style pop; sound is
   forced to generated) | `off`. Scenes with narration built in show `[voice embedded]` and are never narrated twice.
 - `outdated`: `skip` (default) | `render` - 9:16 scenes that do not read `get('h')`. The GUI asks; here ask the user if it matters.
+- `skip_up_to_date`: `false` (default) | `true` - keep scenes whose `<scene>.mp4` is newer than the scene and its song /
+  narration files (status `Skipped (up to date)`; the GUI's "Skip scenes already rendered"). Use it for re-running a folder batch.
+  `shadow_plan` / `shadow_progress` also give `estimate_s` / `eta` ("about 12 min · done ~15:40"); a narrated scene gets `<video>.srt`.
 - `out_dir`: default = the GUI's "Save to" (~/.shadow_renderer.json). Output: `<out_dir>\<scene name>\<scene>.mp4`
   (`<scene>_shorts.mp4` for 9:16) + `.qc.txt` (+ `_thumb.jpg` if the scene sets THUMBNAIL_T, + `<scene>_<time>.log` on failure).
   Nothing is overwritten (`_2`, `_3`).

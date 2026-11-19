@@ -48,8 +48,12 @@ New versions show an **Update to vX.Y** button inside the app and install themse
 | **Quality check on every video** | A `.qc.txt` report: size, duration, black frames, freezes, silence, loudness and true peak. |
 | **Narration with captions** | Put `<scene>.wav` + `<scene>.words.json` next to the scene: the voice is mixed in and word captions appear (2D canvas scenes). |
 | **Blender scenes** | `.blend` files render through your installed Blender (Eevee, Cycles on the GPU, or Workbench) with the same sound, Shorts and QC. [Guide](docs/BLENDER.md) |
+| **Check before you render** | *Check frames* shows a contact sheet in both formats in seconds and lists page errors and frames that are not repeatable. |
+| **Batch-friendly** | *Add folder...* (or drop a folder), *Skip scenes already rendered*, a time estimate per scene and for the whole queue, and a Windows notification when it is done. |
+| **Subtitles** | A narrated video gets a `.srt` subtitle file next to it, ready to upload to YouTube. |
 | **Fast or best** | *Capture*: Best quality (PNG, default) or Fast (JPEG, about 2x faster, very slightly softer). |
-| **Claude can run it** | A local MCP server lets Claude render, follow progress, preview frames and read QC reports for you. [Guide](docs/MCP.md) |
+| **Claude can run it** | A local MCP server lets Claude render, follow progress, preview frames and read QC reports for you. Works with other MCP clients too (Gemini CLI, Cursor, VS Code, ...). [Guide](docs/MCP.md) |
+| **Assistant panel** | Ask in plain words inside the app ("render this folder and check the quality") and watch Claude do it. Runs on your Claude subscription through Claude Code, no API key. [Guide](docs/ASSISTANT.md) |
 | **Safe and tidy** | Each scene gets its own output folder; nothing is ever overwritten (`_2`, `_3`); failed renders leave a log. |
 | **Free and offline** | No accounts, no paid services, nothing uploaded. Only your scenes' own CDN links (e.g. three.js) need the internet. |
 
@@ -84,10 +88,11 @@ A scene is one HTML file that provides:
 - the size from the `w` and `h` URL parameters (read `h` to support 9:16)
 - optional: `window.STYLE_SOUND(k)` + the `SOUND.renderOffline` kit for generated sound, `window.THUMBNAIL_T` for an automatic thumbnail
 
-[`tests/fixtures/webgl_min.html`](tests/fixtures/webgl_min.html) is a minimal working scene. Before a long render,
-`python tools/check_frames.py scene.html` makes a contact sheet in both formats in a few seconds and checks that `seek(t)` is pure.
+[`tests/fixtures/webgl_min.html`](tests/fixtures/webgl_min.html) is a minimal working scene. Before a long render, press
+**Check frames** (or run `python tools/check_frames.py scene.html`): a contact sheet in both formats in a few seconds, and a check that `seek(t)` is pure.
 
-**Command line:** `Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent] [--fast]`
+**Command line:** `Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent] [--fast]`,
+`Shadow.exe --check scene.html [--only 16:9|9:16]` (contact sheet `<scene>.check.jpg` next to the scene)
 
 ## Use Shadow from Claude (MCP)
 
@@ -102,7 +107,12 @@ claude mcp add shadow --scope user -- python C:\Shadow\tools\mcp_server.py
 ```
 
 Then copy `claude-skills\shadow-mcp` to `%USERPROFILE%\.claude\skills\` so Claude knows when to use it, and check with
-`claude mcp list` (`shadow: ... Connected`). Full guide, Claude Desktop setup and the tool list: [docs/MCP.md](docs/MCP.md).
+`claude mcp list` (`shadow: ... Connected`). Full guide, the tool list and setups for Claude Desktop, Cursor, VS Code,
+Windsurf and Gemini CLI (plus an optional localhost-only HTTP mode): [docs/MCP.md](docs/MCP.md).
+
+**Assistant panel:** the **Assistant** button in the window opens a chat with Claude that uses these tools. It runs on your
+Claude subscription through the installed Claude Code CLI (no API key). Claude may only read files and use Shadow's tools;
+stopping a render needs your click. Details and the exact permissions: [docs/ASSISTANT.md](docs/ASSISTANT.md).
 
 ## FAQ
 

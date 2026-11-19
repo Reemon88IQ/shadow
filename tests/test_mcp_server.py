@@ -11,6 +11,8 @@ Usage: python tests/test_mcp_server.py      exit 0 = every check PASS, 1 = any F
   M6 the real server over stdio (MCP client): tools listed, shadow_info, shadow_plan, a bad setting is an error result,
      shadow_check_frames on webgl_min (sheet image returned), and - only if Chrome is installed - a real draft render
      followed with shadow_progress(wait_seconds) and shadow_outputs / shadow_qc
+  M7 optional HTTP mode (--http): off by default, listens on 127.0.0.1 only, MCP client over http lists the tools and
+     calls shadow_info, a request with a foreign Host header is refused (DNS rebinding)
 M3/M4 use the regression tests' software-WebGL + frame cap (like test_queue_gui.py); M6 renders with the real Chrome."""
 import asyncio, json, os, shutil, sys, tempfile, threading, time, traceback
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
@@ -267,6 +269,50 @@ async def m6_async(tmp, d):
     check('M6 server log went to SHADOW_LOG in the temp folder; the real ~/shadow.log is untouched', os.path.isfile(os.path.join(tmp, 'shadow.log'))
           and before == (os.path.getsize(real_log) if os.path.isfile(real_log) else None))
 
+def free_port():
+    import socket
+    s = socket.socket(); s.bind(('127.0.0.1', 0)); p = s.getsockname()[1]; s.close(); return p
+
+async def m7_async(tmp):
+    import socket, subprocess, urllib.request, urllib.error
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+    a = ms.parse_args([])
+    check('M7 HTTP off by default (no arguments = stdio)', a.http is False)
+    check('M7 --http --port N parsed; host is fixed to 127.0.0.1', ms.parse_args(['--http', '--port', '9001']).port == 9001 and ms.HTTP_HOST == '127.0.0.1')
+    port = free_port()
+    env = dict(os.environ, SHADOW_LOG=os.path.join(tmp, 'shadow_http.log'))
+    p = subprocess.Popen([sys.executable, os.path.join(ROOT, 'tools', 'mcp_server.py'), '--http', '--port', str(port)], env=env,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=app.NOWIN)
+    try:
+        t0 = time.time(); up = False
+        while time.time() - t0 < 30 and not up:
+            try: socket.create_connection(('127.0.0.1', port), 0.5).close(); up = True
+            except OSError: time.sleep(0.2)
+        check('M7 HTTP server listening on 127.0.0.1', up)
+        try:
+            import psutil
+            addrs = {c.laddr.ip for c in psutil.Process(p.pid).net_connections() if c.status == 'LISTEN'}
+            check('M7 listens on 127.0.0.1 only (not 0.0.0.0 / LAN)', addrs == {'127.0.0.1'}, addrs)
+        except Exception as e:
+            print(f'SKIP  M7 listen-address check ({e})')
+        async with streamable_http_client(f'http://127.0.0.1:{port}/mcp') as (r, w, *_):
+            async with ClientSession(r, w) as s:
+                await s.initialize()
+                names = sorted(t.name for t in (await s.list_tools()).tools)
+                check('M7 MCP over HTTP lists the 9 tools', len(names) == 9 and 'shadow_render' in names, names)
+                info = json.loads((await s.call_tool('shadow_info', {})).content[0].text)
+                check('M7 shadow_info over HTTP', info.get('version') == rc.VERSION, info.get('version'))
+        req = urllib.request.Request(f'http://127.0.0.1:{port}/mcp', method='POST', data=b'{}',
+                                     headers={'Host': f'evil.example:{port}', 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream'})
+        try: code = urllib.request.urlopen(req, timeout=10).status
+        except urllib.error.HTTPError as e: code = e.code
+        check('M7 foreign Host header refused (DNS-rebinding protection)', code in (400, 403, 421), code)
+    finally:
+        p.terminate()
+        try: p.wait(10)
+        except Exception: p.kill()
+
 def main():
     tmp = tempfile.mkdtemp(prefix='shadow_mcp_test_')
     try:
@@ -284,6 +330,8 @@ def main():
             except Exception: check('M5 crash', False, traceback.format_exc())
         try: asyncio.run(m6_async(tmp, d))
         except Exception: check('M6 crash', False, traceback.format_exc())
+        try: asyncio.run(m7_async(tmp))
+        except Exception: check('M7 crash', False, traceback.format_exc())
         for f in os.listdir(d):
             if f.endswith('.check.jpg'): os.remove(os.path.join(d, f))
     finally:

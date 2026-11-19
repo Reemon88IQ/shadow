@@ -60,7 +60,7 @@ def b13(cube, tmp):
     a = app.App(); a.withdraw()
     try:
         out = os.path.join(tmp, 'gui')
-        a.open_when_done.set(False); a.preset.set('Draft (fast, 720p)'); a.fmt.set(app.FORMAT_AUTO); a.snd.set(app.SOUNDS[0])
+        a.open_when_done.set(False); a.skip_done.set(False); a.notify.set(False); a.preset.set('Draft (fast, 720p)'); a.fmt.set(app.FORMAT_AUTO); a.snd.set(app.SOUNDS[0])
         a.capture.set(list(app.CAPTURES)[1]); a.bl_engine.set(bc.ENGINES['workbench']); a.out_dir.set(out)
         a._add(cube); a._add(os.path.join(tmp, 'not_a_scene.txt'))
         v = a.tree.item(a.rows[cube], 'values') if cube in a.rows else ()

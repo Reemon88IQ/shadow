@@ -51,6 +51,7 @@ msgs = []
 for n in ('showwarning', 'showerror', 'showinfo'):
     setattr(app.messagebox, n, (lambda n: lambda title, text, **k: msgs.append((n, title, text)))(n))
 app.filedialog.askopenfilename = lambda **k: ''
+app.messagebox.askyesno = lambda *x, **k: False; app.filedialog.askdirectory = lambda **k: ''   # never a real dialog (Add folder / Check frames)
 
 ROOT_TMP = tempfile.mkdtemp(prefix='shadow_queue_gui_')
 tempfile.tempdir = ROOT_TMP            # render_core's bq_render_* folders land here, so leftovers are visible
@@ -83,7 +84,8 @@ with open(WORDS, 'w', encoding='utf-8') as fh: json.dump({'words': [{'w': 'Hello
 def temps(): return sorted(f for f in os.listdir(scenes_dir) if f.startswith('.shadow_narr_'))
 
 a = app.App(); a.withdraw()
-a.open_when_done.set(False); a.preset.set('Test (640 px)'); a.fmt.set('16:9 (YouTube)'); a.snd.set(app.SOUNDS[0])
+a.open_when_done.set(False); a.skip_done.set(False); a.notify.set(False)   # Q12 expects _2; no toasts from tests
+a.preset.set('Test (640 px)'); a.fmt.set('16:9 (YouTube)'); a.snd.set(app.SOUNDS[0])
 results = {}; checks = []
 BLOCKED_MSG = "can't be removed"      # part of the status-line message when the running file is asked to go
 

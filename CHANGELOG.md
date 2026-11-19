@@ -3,6 +3,25 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
+## 3.11 - unreleased
+- **Check frames** button: select one or more scenes and get a contact sheet (16:9 and 9:16) in seconds, with page errors
+  and frames that change between two draws of the same time (`seek(t)` not pure) listed - before a long render.
+  Also `Shadow.exe --check scene.html`.
+- **Time estimate**: a Time column (about how long each scene takes, the time left while it renders, how long it took) and
+  "about 12 min · done ~15:40" for the whole queue, corrected with the speed measured while rendering.
+- **Skip scenes already rendered** (on by default): a scene whose video is newer than the scene and its song / voice files
+  is marked *Skipped (up to date)* instead of being rendered again as `_2`. Change the scene and it renders again.
+- **Add folder...**: adds every `.html` / `.blend` scene in a folder (subfolders on request); dropping a folder works too.
+- **Subtitles**: every narrated video gets a `.srt` file next to it, from the same word timings as the captions.
+- **Assistant panel** (button *Assistant*): chat with Claude inside Shadow ("render this folder and check the quality")
+  and watch its steps and reply as they arrive. It uses your Claude subscription through the installed Claude Code CLI;
+  there is no API key. Claude can only read files and use Shadow's tools. Stopping a render needs your *Allow once*.
+  Guide: [docs/ASSISTANT.md](docs/ASSISTANT.md).
+- **Other AI clients:** setup for Claude Desktop, Cursor, VS Code (Copilot agent mode), Windsurf and Gemini CLI in
+  [docs/MCP.md](docs/MCP.md), and an optional HTTP mode for the MCP server (`--http`). It listens on localhost only and is
+  off by default.
+- **Notification** when the queue ends (done / failed counts); click it to open the output folder. Can be turned off.
+
 ## 3.10 - 2026-11-19
 - **Blender scenes:** add `.blend` files to the queue like `.html` scenes. Shadow runs your installed Blender in the
   background (Eevee, Cycles on the GPU, or Workbench) and uses the same encoding, sound (Auto), Shorts (a 9:16 camera picked
