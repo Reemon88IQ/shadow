@@ -20,6 +20,7 @@
   <a href="../../releases/latest"><b>Download</b></a> &nbsp;·&nbsp;
   <a href="#quick-start">Quick start</a> &nbsp;·&nbsp;
   <a href="#features">Features</a> &nbsp;·&nbsp;
+  <a href="docs/GUIDE.md">User guide</a> &nbsp;·&nbsp;
   <a href="#use-shadow-from-claude-mcp">Claude (MCP)</a> &nbsp;·&nbsp;
   <a href="CHANGELOG.md">Changelog</a>
 </p>
@@ -37,6 +38,8 @@
 3. Open Shadow, **drop your scenes** in, press **Render**. That's it.
 
 New versions show an **Update to vX.Y** button inside the app and install themselves.
+
+Every button, option, output file and QC check is explained in the **[user guide](docs/GUIDE.md)**.
 
 ## Features
 

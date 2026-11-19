@@ -14,7 +14,10 @@ PUBLIC = ['app.py', 'assistant.py', 'docs/ASSISTANT.md', 'render_core.py', 'blen
           'docs/social_preview.png', '.github/ISSUE_TEMPLATE/*', 'tools/make_brand_images.py', 'README.md', 'LICENSE', '.gitignore',
           'install.bat', 'build_exe.bat', 'build_installer.bat', 'release.bat', 'run.bat', 'publish_update.bat',
           'installer/shadow.iss', 'assets/shadow.ico', 'assets/shadow_1024.png', 'docs/screenshot.png',
-          'tools/narrate/*', 'tools/publish_public.py', 'tools/publish_update.py', 'tests/*.py', 'tests/fixtures/*', 'tests/fixtures/qc/*']
+          'tools/narrate/*', 'tools/publish_public.py', 'tools/publish_update.py', 'tests/*.py', 'tests/fixtures/*', 'tests/fixtures/qc/*',
+          'docs/GUIDE.md']
+# matched by PUBLIC but kept private (they need the private channel tools)
+NOT_PUBLIC = ['tests/test_song_structure.py']
 
 
 def git(*a, cwd=ROOT, **kw):
@@ -23,7 +26,7 @@ def git(*a, cwd=ROOT, **kw):
 
 def public_files():
     tracked = git('ls-tree', '-r', '--name-only', '-z', 'HEAD').decode('utf-8').split('\0')
-    return sorted(f for f in tracked if f and any(fnmatch.fnmatchcase(f, p) and f.count('/') == p.count('/') for p in PUBLIC))
+    return sorted(f for f in tracked if f and f not in NOT_PUBLIC and any(fnmatch.fnmatchcase(f, p) and f.count('/') == p.count('/') for p in PUBLIC))
 
 
 def main():
