@@ -41,7 +41,7 @@ New versions show an **Update to vX.Y** button inside the app and install themse
 
 ## Features
 
-| | |
+| Feature | What it does |
 |---|---|
 | **Frame-exact video** | Every frame is drawn on purpose (`seek(t)`), so the video is identical every time - no dropped frames, no screen recording. |
 | **1080p, 30 fps, with sound** | The scene's own generated sound, a song or voice file next to it (*Auto*), or silent. Loudness is set to about -15 LUFS and checked *after* encoding. |
