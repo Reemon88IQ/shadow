@@ -15,14 +15,33 @@ write (or generate) a scene as one `.html` file, drop it in Shadow, get a clean,
 
 ## Use
 
-Add `.html` scenes (drag and drop or *Add...*), pick quality, format (16:9, 9:16 or *Auto*: files named `short_*` render 9:16),
+Add `.html` scenes or Blender `.blend` files (drag and drop or *Add...*), pick quality, format (16:9, 9:16 or *Auto*:
+files named `short_*` or `*-short` render 9:16),
 sound and the output folder, press **Render**. Every scene gets its own folder with the `.mp4`, a quality-check report
 (`.qc.txt`: black frames, freezes, silence, loudness) and, if it failed, a log. Existing files are never overwritten.
 
 - **Sound**: the scene's own generated sound, an external file (loudness-normalised to -15 LUFS, true-peak limited),
   *Auto* (`<scene>.wav/.mp3/...` next to the scene) or silent.
 - **Narration**: a voice WAV + word timings (`words.json`) are mixed in and shown as word captions (2D canvas scenes).
-- **Command line**: `Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent]`
+- **Capture**: *Best quality (PNG)* or *Fast (JPEG)*, about 2x faster with a very slightly softer picture.
+- **Blender**: `.blend` files render through your installed Blender (Eevee, Cycles or Workbench) with the same sound,
+  Shorts and quality check - see [docs/BLENDER.md](docs/BLENDER.md).
+- **Command line**: `Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent] [--fast]`
+
+## Use Shadow from Claude (MCP)
+
+Claude (Claude Code, Claude Desktop or any MCP client) can render with Shadow for you - render a scene or a whole folder,
+follow the progress, cancel, preview frames and read the quality report - without opening the window. It is local and free
+(no API keys, nothing leaves your PC). It runs from a copy of this repository with Python, not from the installed exe:
+
+```
+git clone https://github.com/Reemon88IQ/shadow C:\Shadow
+python -m pip install "mcp>=2" playwright pillow tkinterdnd2 sv-ttk darkdetect numpy
+claude mcp add shadow --scope user -- python C:\Shadow\tools\mcp_server.py
+```
+
+Then copy `claude-skills\shadow-mcp` to `%USERPROFILE%\.claude\skills\` so Claude knows when to use it, and check with
+`claude mcp list` (`shadow: ... Connected`). Full guide, Claude Desktop setup and the tool list: [docs/MCP.md](docs/MCP.md).
 
 ## Scene contract
 
@@ -60,4 +79,8 @@ MIT. Shadow uses Google Chrome (via Playwright) and ffmpeg, which are installed 
 لما ينزل إصدار جديد يطلعلك زر **Update** داخل البرنامج.
 
 **الاستخدام:** اسحب ملفات `.html` للبرنامج، اختار الجودة والصيغة والصوت ومجلد الحفظ، واضغط **Render**.
-كل مشهد ينحفظ بمجلد خاص بيه، ويا الفيديو تقرير فحص جودة.
+كل مشهد ينحفظ بمجلد خاص بيه، ويا الفيديو تقرير فحص جودة. وملفات Blender (`.blend`) تنرندر بنفس الطريقة إذا Blender منصّب.
+
+**ربطه ويا Claude:** Claude يگدر يرندر بـ Shadow ويتابع التقدّم ويقرا تقرير الجودة بدون ما تفتح البرنامج. مجاني ويشتغل على
+حاسبتك بس. يحتاج نسخة من هذا الكود ويا بايثون (مو البرنامج المنصّب وحده). الخطوات بقسم *Use Shadow from Claude (MCP)* فوق،
+والشرح الكامل بـ [docs/MCP.md](docs/MCP.md).
