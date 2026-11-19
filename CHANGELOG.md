@@ -3,7 +3,7 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
-## 3.12 - unreleased
+## 3.12
 - **Upload to YouTube** (**YouTube...** button): sign in once per channel in your browser, then upload the videos you just
   rendered - title, description (chapters), tags and Made for Kids from `metadata.txt`, Private by default, resumable with
   progress, a link to YouTube Studio when done. Uses the free YouTube Data API with your own Google Cloud project
