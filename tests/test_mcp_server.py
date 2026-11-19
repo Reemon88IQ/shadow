@@ -97,7 +97,7 @@ def m2(tmp, d):
     check('M2 sound=file uses the given file for every scene', r['rows'][0]['audio'] == 'song.wav' and r['opts']['audio_file'].endswith('song.wav'))
     bad = []
     for kw in (dict(quality='ultra'), dict(format='4:3'), dict(sound='loud'), dict(capture='webp'), dict(sound='file'),
-               dict(narration='maybe'), dict(outdated='ask')):
+               dict(narration='maybe'), dict(outdated='ask'), dict(folder='..')):
         try: ms.build_plan([d], out_dir=tmp, **kw); bad.append(kw)
         except ValueError: pass
     check('M2 every bad setting raises ValueError (quality/format/sound/capture/file without audio_file/narration/outdated)', not bad, bad)
@@ -105,6 +105,18 @@ def m2(tmp, d):
     check('M2 names are case-insensitive and map to the GUI presets', p['preset'] == rc.PRESETS['Draft (fast, 720p)'] and p['opts']['capture'] == 'jpeg'
           and p['opts']['format'] == '16:9 (YouTube)')
     os.remove(os.path.join(d, 'narr_2d.wav')); os.remove(os.path.join(d, 'narr_2d.words.json'))
+    # folder: auto = the scene's meta, else a song file next to it -> Music, the rest -> Video; Short next to its video
+    shutil.copy(os.path.join(d, 'webgl_min.html'), os.path.join(tmp, 'tune.html')); open(os.path.join(tmp, 'tune.mp3'), 'wb').close()
+    shutil.copy(os.path.join(d, 'webgl_min.html'), os.path.join(tmp, 'short_tune.html')); open(os.path.join(tmp, 'short_tune.mp3'), 'wb').close()
+    rows = {r['name']: r for r in ms.build_plan([os.path.join(tmp, 'tune.html'), os.path.join(tmp, 'short_tune.html'), os.path.join(d, 'webgl_min.html')],
+                                                out_dir=tmp)['rows']}
+    o = lambda n: os.path.relpath(app.output_mp4(tmp, rows[n]['scene'], rows[n]['vertical'], rows[n]['main']), tmp)
+    check('M2 folder=auto: song next to it -> Music\\tune\\ (Short too), own sound -> Video\\',
+          (o('tune.html'), o('short_tune.html'), o('webgl_min.html')) == (os.path.join('Music', 'tune', 'tune.mp4'), os.path.join('Music', 'tune', 'tune_shorts.mp4'),
+                                                                           os.path.join('Video', 'webgl_min', 'webgl_min.mp4')), [o(n) for n in rows])
+    r = ms.build_plan([os.path.join(tmp, 'tune.html')], out_dir=tmp, folder='Kids')['rows'][0]
+    r2 = ms.build_plan([os.path.join(tmp, 'tune.html')], out_dir=tmp, folder='none')['rows'][0]
+    check('M2 folder=Kids / none', (r['folder'], r2['folder']) == (os.path.join('Kids', 'tune'), 'tune'), (r['folder'], r2['folder']))
 
 def patched_render(gate=None):
     """rc.render with software WebGL + a frame cap; gate = (scene base name, Event reached, Event release) holds that render after frame 3."""
@@ -131,9 +143,9 @@ def m3(tmp, d):
     real, calls = patched_render()
     try:
         plan = ms.build_plan([os.path.join(d, 'webgl_min.html'), os.path.join(d, 'short_webgl.html'), os.path.join(d, 'short_old.html')],
-                             out_dir=out, quality='draft', sound='auto')
+                             out_dir=out, quality='draft', sound='auto', folder='none')
         job = run_job(plan); s = job.snapshot()
-        job2 = run_job(ms.build_plan([os.path.join(d, 'webgl_min.html')], out_dir=out, quality='draft')); s2 = job2.snapshot()
+        job2 = run_job(ms.build_plan([os.path.join(d, 'webgl_min.html')], out_dir=out, quality='draft', folder='none')); s2 = job2.snapshot()
         # the GUI worker on the same scene, into another folder, for comparison
         gui_out = os.path.join(tmp, 'gui3'); os.makedirs(gui_out)
         class Fake:
@@ -151,7 +163,7 @@ def m3(tmp, d):
     check('M3 16:9 -> <out>/webgl_min/webgl_min.mp4 + .qc.txt', w['mp4'] == os.path.join(out, 'webgl_min', 'webgl_min.mp4') and os.path.isfile(w['mp4'])
           and os.path.isfile(os.path.join(out, 'webgl_min', 'webgl_min.qc.txt')), w['mp4'])
     pv = probe(v['mp4']) if v['mp4'] else None
-    check('M3 9:16 -> <out>/short_webgl/short_webgl_shorts.mp4, 720x1280 for draft', v['mp4'] == os.path.join(out, 'short_webgl', 'short_webgl_shorts.mp4')
+    check('M3 9:16 short_webgl.html -> <out>/webgl/webgl_shorts.mp4 (marker dropped), 720x1280 for draft', v['mp4'] == os.path.join(out, 'webgl', 'webgl_shorts.mp4')
           and pv and pv[:2] == (720, 1280), (v['mp4'], pv))
     check('M3 a second job never overwrites: webgl_min_2.mp4 in the same folder', s2['items'][0]['mp4'] == os.path.join(out, 'webgl_min', 'webgl_min_2.mp4')
           and os.path.isfile(s2['items'][0]['mp4']))
@@ -204,7 +216,7 @@ def m5(tmp, out):
           [(os.path.basename(v['path']), v.get('width'), v.get('height'), v.get('qc')) for v in vids])
     open(os.path.join(out, 'webgl_min', 'x.part.mp4'), 'w').close()
     check('M5 list_outputs skips unfinished .part.mp4', not any(f['path'].endswith('.part.mp4') for f in ms.list_outputs(out)))
-    r = ms.run_qc_now(os.path.join(out, 'short_webgl', 'short_webgl_shorts.mp4'), 'draft')
+    r = ms.run_qc_now(os.path.join(out, 'webgl', 'webgl_shorts.mp4'), 'draft')
     check('M5 run_qc_now re-checks an mp4 (9:16 read from the file)', r['status'] and r['report'] and os.path.isfile(r['report']), r)
     try: ms.list_outputs(os.path.join(tmp, 'nope')); ok = False
     except ValueError: ok = True

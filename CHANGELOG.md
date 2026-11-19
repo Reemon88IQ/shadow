@@ -3,7 +3,19 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
-## 3.11 - unreleased
+## 3.12 - unreleased
+- **Upload to YouTube** (**YouTube...** button): sign in once per channel in your browser, then upload the videos you just
+  rendered - title, description (chapters), tags and Made for Kids from `metadata.txt`, Private by default, resumable with
+  progress, a link to YouTube Studio when done. Uses the free YouTube Data API with your own Google Cloud project
+  (setup in [docs/YOUTUBE.md](docs/YOUTUBE.md)); until that project passes YouTube's audit, uploads stay Private.
+- **A Short and its video share one folder**: `short_ocean.html` (or `ocean-short.html`) rendered 9:16 now goes to
+  `ocean\ocean_shorts.mp4`, next to `ocean\ocean.mp4`, instead of its own `short_ocean\` folder.
+- **Folder option** (next to Save to): *Auto (Music / Video)* sorts every video into a main folder by itself - a scene that
+  plays a song file next to it goes to `Music\`, everything else (own sound, narration, silent) to `Video\`. Or pick
+  *Music*, *Video*, a folder you add with **New folder...**, or *None* (straight in Save to, like before).
+- A scene can choose its folder with `<meta name="shadow-folder" content="Music">` (Auto follows it; nested like `Music/2026` works).
+
+## 3.11
 - **Check frames** button: select one or more scenes and get a contact sheet (16:9 and 9:16) in seconds, with page errors
   and frames that change between two draws of the same time (`seek(t)` not pure) listed - before a long render.
   Also `Shadow.exe --check scene.html`.

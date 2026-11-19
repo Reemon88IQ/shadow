@@ -45,7 +45,16 @@ def _norm(name, table, what):
     if k not in table: raise ValueError(f'{what} must be one of {", ".join(table)}, got {name!r}')
     return k
 
-def plan_scene(f, fmt_label, sound, audio_file=None, narration='auto'):
+def folder_choice(folder):
+    """MCP 'folder' -> the GUI's Folder value: auto -> FOLDER_AUTO, none -> FOLDER_NONE, a name -> that name (made safe)."""
+    k = str(folder or 'auto').strip()
+    if k.lower() == 'auto': return app.FOLDER_AUTO
+    if k.lower() == 'none': return app.FOLDER_NONE
+    name = app.safe_rel_folder(k)
+    if not name: raise ValueError(f"folder must be 'auto', 'none' or a folder name, got {folder!r}")
+    return name
+
+def plan_scene(f, fmt_label, sound, audio_file=None, narration='auto', folder_choice=None):
     """What one scene will do, as the GUI table shows it: Format column, Audio column, [voice] / [voice embedded],
     the outdated-9:16 check. narration: 'auto' (attach <scene>.wav + <scene>.words.json next to it, like the GUI) or 'off'."""
     embedded = False; blend = bc.is_blend(f)
@@ -67,10 +76,11 @@ def plan_scene(f, fmt_label, sound, audio_file=None, narration='auto'):
     mark = f' {app.VOICE_EMBEDDED_MARK}' if embedded else f' {app.VOICE_MARK}' if narr else ''
     return dict(scene=f, name=os.path.basename(f) + mark, format=app.format_label(vertical), vertical=vertical,
                 audio=ra['label'], audio_warn=ra['warn'], narration=narr, narration_note=narr_note, embedded=embedded,
-                outdated=outdated, folder=app.scene_folder_name(f), kind='blender' if blend else 'html')
+                outdated=outdated, main=(main := app.category_folder(f, folder_choice, sound, audio_file, narrated=narrated)),
+                folder=app.output_place(f, vertical, main)[0], kind='blender' if blend else 'html')
 
 def build_plan(paths, out_dir=None, quality='best', format='auto', sound='auto', audio_file=None, capture='png',
-               narration='auto', outdated='skip', recursive=False, engine='scene', device='auto', skip_up_to_date=False):
+               narration='auto', outdated='skip', recursive=False, engine='scene', device='auto', skip_up_to_date=False, folder='auto'):
     """Check the settings and work out every scene's row. Raises ValueError for a bad setting. Pure apart from reading.
     skip_up_to_date: a scene whose <out>/<scene>/<scene>.mp4 is newer than the scene and its audio/narration (and has the
     preset's size) is not rendered again (status 'Skipped (up to date)', like the GUI option)."""
@@ -84,7 +94,8 @@ def build_plan(paths, out_dir=None, quality='best', format='auto', sound='auto',
         audio_file = os.path.abspath(audio_file)
     scenes, problems = collect_scenes(paths, recursive)
     out_dir = os.path.abspath(os.path.expanduser(out_dir)) if out_dir else default_out_dir()
-    rows = [plan_scene(f, FORMAT[fm], snd, audio_file, narration) for f in scenes]
+    fc = folder_choice(folder)
+    rows = [plan_scene(f, FORMAT[fm], snd, audio_file, narration, fc) for f in scenes]
     preset = rc.PRESETS[QUALITY[q]]
     for r in rows:
         r['skip'] = bool(r['outdated'] and outdated == 'skip')
@@ -92,7 +103,7 @@ def build_plan(paths, out_dir=None, quality='best', format='auto', sound='auto',
         r['up_to_date'] = None
         if skip_up_to_date and not r['skip']:
             r['up_to_date'] = app.up_to_date(r['scene'], out_dir, r['vertical'], app.render_deps(r['scene'], dict(sound=snd, audio_file=audio_file), r['narration']),
-                                             expect=app.expected_size(preset, r['vertical']))
+                                             expect=app.expected_size(preset, r['vertical']), main=r['main'])
             if r['up_to_date']: r['skip'] = True; r['status'] = app.SKIPPED_UP_TO_DATE
         r['estimate_s'] = None if r['skip'] else app.estimate_seconds(app.scene_duration_guess(r['scene'], app.find_scene_audio(r['scene']) if snd == 'auto' else audio_file, r['narration']), preset, cap)
     warns = [r['audio_warn'] for r in rows if r['audio_warn'] and not r['skip']]
@@ -101,11 +112,11 @@ def build_plan(paths, out_dir=None, quality='best', format='auto', sound='auto',
         warns.append(f"{app.OUTDATED}: " + ', '.join(os.path.basename(r['scene']) for r in rows if r['outdated'])
                      + (' (skipped; outdated="render" renders them anyway)' if outdated == 'skip' else ' (rendered anyway)'))
     opts = dict(vertical=app.format_vertical('', FORMAT[fm]), format=FORMAT[fm], sound=snd, audio_file=audio_file, capture=cap,
-                engine=eng, device=dev, skip_done=bool(skip_up_to_date))   # engine/device: .blend scenes only (app.render_item drops them for HTML)
+                engine=eng, device=dev, skip_done=bool(skip_up_to_date), folder=fc)   # engine/device: .blend scenes only (app.render_item drops them for HTML)
     known = [r['estimate_s'] for r in rows if not r['skip'] and r['estimate_s']]
     return dict(estimate_s=round(sum(known)) if known else None, not_estimated=sum(1 for r in rows if not r['skip'] and not r['estimate_s']),
                 skip_up_to_date=bool(skip_up_to_date), out_dir=out_dir, quality=q, preset_name=QUALITY[q], preset=preset, format=fm, sound=snd, capture=cap,
-                audio_file=audio_file, narration=narration, outdated=outdated, engine=eng, device=dev, opts=opts, rows=rows, problems=problems, warnings=warns)
+                audio_file=audio_file, narration=narration, outdated=outdated, folder=fc, engine=eng, device=dev, opts=opts, rows=rows, problems=problems, warnings=warns)
 
 
 # ---------------------------------------------------------------- jobs (one render at a time, like the GUI queue)
@@ -269,7 +280,7 @@ def find_qc_reports(path):
     if p.lower().endswith('.qc.txt'): return [p] if os.path.isfile(p) else []
     if p.lower().endswith('.mp4'):
         q = os.path.splitext(p)[0] + '.qc.txt'; return [q] if os.path.isfile(q) else []
-    if os.path.isdir(p): return sorted(glob.glob(os.path.join(p, '*.qc.txt')) + glob.glob(os.path.join(p, '*', '*.qc.txt')))
+    if os.path.isdir(p): return sorted(glob.glob(os.path.join(p, '*.qc.txt')) + glob.glob(os.path.join(p, '*', '*.qc.txt')) + glob.glob(os.path.join(p, '*', '*', '*.qc.txt')))   # Save to \ Music \ song \ x.qc.txt
     return []
 
 def read_qc(path):
@@ -299,7 +310,7 @@ def list_outputs(path):
     QC reports, failure logs, thumbnails. Skips unfinished .part.mp4 files."""
     p = os.path.abspath(os.path.expanduser(path))
     if not os.path.isdir(p): raise ValueError(f'folder not found: {p}')
-    files = sorted(set(glob.glob(os.path.join(p, '*')) + glob.glob(os.path.join(p, '*', '*'))))
+    files = sorted(set(glob.glob(os.path.join(p, '*')) + glob.glob(os.path.join(p, '*', '*')) + glob.glob(os.path.join(p, '*', '*', '*'))))   # also Save to \ Music \ song \
     out = []
     for f in files:
         if not os.path.isfile(f) or f.lower().endswith('.part.mp4') or not f.lower().endswith(OUT_EXTS): continue
@@ -326,10 +337,10 @@ def build_server():
     def plan_view(plan):
         return dict(out_dir=plan['out_dir'], quality=plan['preset_name'], format=plan['format'], sound=plan['sound'],
                     capture=plan['capture'], audio_file=plan['audio_file'], problems=plan['problems'], warnings=plan['warnings'],
-                    engine=plan['engine'], device=plan['device'], skip_up_to_date=plan['skip_up_to_date'],
+                    engine=plan['engine'], device=plan['device'], skip_up_to_date=plan['skip_up_to_date'], folder=plan['folder'],
                     estimate_s=plan['estimate_s'], estimate=app.eta_text(plan['estimate_s'] or 0, unknown=plan['not_estimated']),
                     rows=[dict(scene=r['scene'], name=r['name'], kind=r['kind'], format=r['format'], audio=r['audio'], status=r['status'], estimate_s=r['estimate_s'] and round(r['estimate_s']),
-                               output=os.path.join(plan['out_dir'], r['folder'], r['folder'] + ('_shorts' if r['vertical'] else '') + '.mp4'))
+                               output=app.output_mp4(plan['out_dir'], r['scene'], r['vertical'], r['main']))
                           for r in plan['rows']])
 
     @mcp.tool()
@@ -345,21 +356,24 @@ def build_server():
     @mcp.tool()
     def shadow_plan(paths: list[str], out_dir: str = '', quality: str = 'best', format: str = 'auto', sound: str = 'auto',
                     audio_file: str = '', capture: str = 'png', narration: str = 'auto', outdated: str = 'skip',
-                    recursive: bool = False, engine: str = 'scene', device: str = 'auto', skip_up_to_date: bool = False) -> dict:
+                    recursive: bool = False, engine: str = 'scene', device: str = 'auto', skip_up_to_date: bool = False, folder: str = 'auto') -> dict:
         """Dry run: what shadow_render would do with these settings, without rendering (the GUI table: Format, Audio,
         narration marks, output path, outdated 9:16 scenes, Auto-sound fallbacks, up-to-date scenes, estimated time).
         Same parameters as shadow_render."""
         try:
-            return plan_view(build_plan(paths, out_dir or None, quality, format, sound, audio_file or None, capture, narration, outdated, recursive, engine, device, skip_up_to_date))
+            return plan_view(build_plan(paths, out_dir or None, quality, format, sound, audio_file or None, capture, narration, outdated, recursive, engine, device, skip_up_to_date, folder))
         except ValueError as e:
             return dict(error=str(e))
 
     @mcp.tool()
     def shadow_render(paths: list[str], out_dir: str = '', quality: str = 'best', format: str = 'auto', sound: str = 'auto',
                       audio_file: str = '', capture: str = 'png', narration: str = 'auto', outdated: str = 'skip',
-                      recursive: bool = False, engine: str = 'scene', device: str = 'auto', skip_up_to_date: bool = False) -> dict:
+                      recursive: bool = False, engine: str = 'scene', device: str = 'auto', skip_up_to_date: bool = False, folder: str = 'auto') -> dict:
         """Start rendering scene .html files and/or whole folders of scenes; returns at once with a job_id.
-        out_dir: the "Save to" folder (default: the GUI's). Each scene gets <out_dir>/<scene name>/<scene>.mp4.
+        out_dir: the "Save to" folder (default: the GUI's). Each scene gets <out_dir>/<main folder>/<scene name>/<scene>.mp4;
+        a Short named short_x.html goes next to its video: <main folder>/x/x_shorts.mp4.
+        folder: auto (the scene's <meta name="shadow-folder">, else a song file as its sound -> Music, the rest -> Video) |
+        none (straight in out_dir) | a folder name (Music, Video, Kids...).
         quality: draft (720p) | good (1080p, 24 samples) | best (1080p, 64 samples).
         format: auto (short_*/..._short files -> 9:16, others 16:9) | 16:9 | 9:16.
         sound: auto (<scene>.mp3/.wav/... next to the scene, else the scene's own sound) | generated | none | file (+ audio_file).
@@ -373,7 +387,7 @@ def build_server():
         A narrated scene also gets <video>.srt subtitles next to its mp4 (result 'srt').
         Follow it with shadow_progress(job_id, wait_seconds=50)."""
         try:
-            plan = build_plan(paths, out_dir or None, quality, format, sound, audio_file or None, capture, narration, outdated, recursive, engine, device, skip_up_to_date)
+            plan = build_plan(paths, out_dir or None, quality, format, sound, audio_file or None, capture, narration, outdated, recursive, engine, device, skip_up_to_date, folder)
         except ValueError as e:
             return dict(error=str(e))
         env = rc.check_env(); kinds = {r['kind'] for r in plan['rows'] if not r['skip']}

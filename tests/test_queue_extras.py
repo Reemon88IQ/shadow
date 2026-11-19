@@ -128,7 +128,7 @@ try:
               (r.returncode, r.stderr[-300:]) if r else 'no powershell')
 
     # ---------------------------------------------------------------- GUI
-    a = app.App(); a.withdraw()
+    a = app.App(); a.withdraw(); a.folder_choice.set(app.FOLDER_NONE)   # these checks look at <out>\<scene>\ (Folder Auto: test_queue_logic / test_mcp_server)
     a.open_when_done.set(False); a.preset.set('Test (640 px)'); a.fmt.set('16:9 (YouTube)'); a.snd.set(app.SOUNDS[0])
     a.check_kw = dict(channel=None, extra_args=SW); a.check_window_off = True
     G = {}
@@ -260,11 +260,11 @@ try:
 
     # ---------------------------------------------------------------- X11 MCP, X12 CLI
     import mcp_server as ms
-    plan = ms.build_plan([A, B, TALK], out_dir=G['out'], quality='draft', format='16:9', sound='generated', skip_up_to_date=True)
+    plan = ms.build_plan([A, B, TALK], out_dir=G['out'], quality='draft', format='16:9', sound='generated', skip_up_to_date=True, folder='none')
     st = {os.path.basename(r['scene']): r['status'] for r in plan['rows']}
     check('X11 MCP plan: Draft size differs from the 640 px test renders -> nothing skipped', all(v == 'Queued' for v in st.values()), st)
     rc.PRESETS['Draft (fast, 720p)'] = dict(w=640, samples=2)   # same size as the test renders
-    plan = ms.build_plan([A, B, TALK], out_dir=G['out'], quality='draft', format='16:9', sound='generated', skip_up_to_date=True)
+    plan = ms.build_plan([A, B, TALK], out_dir=G['out'], quality='draft', format='16:9', sound='generated', skip_up_to_date=True, folder='none')
     st = {os.path.basename(r['scene']): r['status'] for r in plan['rows']}
     check('X11 MCP plan skip_up_to_date: rendered scenes "Skipped (up to date)", a_scene (changed after its last render) Queued, opts carry skip_done',
           st == {'a_scene.html': 'Queued', 'b_scene.html': app.SKIPPED_UP_TO_DATE, 'talk.html': app.SKIPPED_UP_TO_DATE} and plan['opts']['skip_done'] is True, st)

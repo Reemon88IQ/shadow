@@ -123,6 +123,14 @@ D:\Videos\ocean\
   ocean_<time>.log     only if the render failed: what went wrong
 ```
 
+A Short made from its own scene file (`short_ocean.html`, `ocean-short.html`...) is saved in the same folder as the video:
+`ocean\ocean_shorts.mp4`.
+
+**Folder** (under Save to) picks the main folder: *Auto (Music / Video)* decides per scene - a scene that plays a song file
+next to it goes to `D:\Videos\Music\ocean\`, everything else to `D:\Videos\Video\ocean\`. Choose *Music*, *Video*, your
+own folder (**New folder...**), or *None* to put scene folders straight into Save to. A scene can also name its folder in
+its `<head>`: `<meta name="shadow-folder" content="Music">` (Auto follows it; nested names like `Music/2026` work too).
+
 Existing files are never overwritten: a second render becomes `ocean_2.mp4`, `ocean_3.mp4`... (unless *Skip scenes
 already rendered* skips it). A folder created for a scene that was cancelled before anything was written is removed again.
 
@@ -184,6 +192,13 @@ Shadow checks each scene and asks what to do with scenes that do not (they would
 `.blend` files go in the same queue and get the same sound modes, Shorts, QC and folders. Shadow runs your installed
 Blender in the background (no window) with the engine you pick under **Blender**. For 9:16, add a camera named like
 `Camera 9x16`; without it Shadow crops the middle of the 16:9 camera and warns. Details: [BLENDER.md](BLENDER.md).
+
+## Upload to YouTube
+
+**YouTube...** (next to *Open log*) uploads the videos you just rendered to one of your channels, with the title,
+description, tags and *Made for Kids* from a `metadata.txt` next to the video or the scene. Sign in once per channel in
+your browser; uploads are Private by default. It needs a free one-time Google Cloud setup, and until that project passes
+YouTube's API audit, uploads stay Private: [YOUTUBE.md](YOUTUBE.md).
 
 ## Assistant panel and Claude
 

@@ -54,6 +54,8 @@ Every button, option, output file and QC check is explained in the **[user guide
 | **Check before you render** | *Check frames* shows a contact sheet in both formats in seconds and lists page errors and frames that are not repeatable. |
 | **Batch-friendly** | *Add folder...* (or drop a folder), *Skip scenes already rendered*, a time estimate per scene and for the whole queue, and a Windows notification when it is done. |
 | **Subtitles** | A narrated video gets a `.srt` subtitle file next to it, ready to upload to YouTube. |
+| **Upload to YouTube** | *YouTube...* uploads the finished videos to your channel with the title, description, tags and *Made for Kids* from `metadata.txt` (Private by default), through your own free Google Cloud project. [Guide](docs/YOUTUBE.md) |
+| **Tidy output folders** | *Folder Auto* puts songs in `Music\` and everything else in `Video\`; a Short is saved next to its video. |
 | **Fast or best** | *Capture*: Best quality (PNG, default) or Fast (JPEG, about 2x faster, very slightly softer). |
 | **Claude can run it** | A local MCP server lets Claude render, follow progress, preview frames and read QC reports for you. Works with other MCP clients too (Gemini CLI, Cursor, VS Code, ...). [Guide](docs/MCP.md) |
 | **Assistant panel** | Ask in plain words inside the app ("render this folder and check the quality") and watch Claude do it. Runs on your Claude subscription through Claude Code, no API key. [Guide](docs/ASSISTANT.md) |
@@ -144,5 +146,5 @@ Release (maintainer): double-click `publish_update.bat` (asks the new version an
 
 ## License
 
-[MIT](LICENSE). Shadow uses Google Chrome (via Playwright), ffmpeg and, for `.blend` files, Blender - all installed
+[MIT](LICENSE) · [Privacy policy](docs/PRIVACY.md). Shadow uses Google Chrome (via Playwright), ffmpeg and, for `.blend` files, Blender - all installed
 separately under their own licenses. Videos you make with Shadow are yours.

@@ -1,4 +1,4 @@
-import datetime, glob, importlib, json, logging, os, queue, re, shutil, subprocess, sys, threading, time, traceback, uuid
+import datetime, glob, importlib, json, logging, os, queue, re, shutil, subprocess, sys, threading, time, traceback, uuid, webbrowser
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -9,6 +9,7 @@ import qc
 import subtitles
 import updater
 import assistant
+import youtube   # noqa: F401  (YouTubeDialog imports it again; listed here so PyInstaller bundles it)
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -108,6 +109,69 @@ def scene_folder_name(scene_path):
     if name.split('.')[0].upper() in _WIN_RESERVED: name = '_' + name
     return name
 
+def strip_short_marker(name):
+    """'short_ocean' / 'ocean-short' / 'ocean_short' / 'ocean short' / '...shorts' -> 'ocean' (the Format Auto markers, any case);
+    other names unchanged. Never returns an empty name."""
+    low = name.lower()
+    if low.startswith(SHORT_PREFIX): out = name[len(SHORT_PREFIX):]
+    else:
+        suf = next((s for s in sorted(SHORT_SUFFIXES, key=len, reverse=True) if low.endswith(s)), None)
+        out = name[:-len(suf)] if suf else name
+    out = out.strip(' ._-')
+    return out or name
+
+_META_FOLDER = re.compile(r"""<meta\s+name\s*=\s*["']shadow-folder["']\s+content\s*=\s*["']([^"'<>]*)["']""", re.I)
+
+def scene_out_folder(scene_path):
+    """The channel folder a scene asks for with <meta name="shadow-folder" content="Music"> (also "Music/2026"): the
+    relative sub-path of Save to its folder goes in, '' when none or for a .blend. Windows-safe parts only; '..', drive
+    letters and absolute paths are ignored."""
+    if not scene_path.lower().endswith(('.html', '.htm')): return ''
+    try:
+        with open(scene_path, encoding='utf-8', errors='replace') as fh: head = fh.read(20000)
+    except OSError: return ''
+    m = _META_FOLDER.search(head)
+    return safe_rel_folder(m.group(1)) if m else ''
+
+def safe_rel_folder(text):
+    """'Music' / 'Music/2026' -> a Windows-safe relative path ('' if nothing is left): no '..', no : ? * etc., no drive,
+    reserved device names prefixed with _."""
+    parts = []
+    for p in re.split(r'[\\/]+', text or ''):
+        p = re.sub(r'[<>:"|?*\x00-\x1f]', '', p).strip(' .')
+        if not p or p == '..': continue
+        if p.split('.')[0].upper() in _WIN_RESERVED: p = '_' + p
+        parts.append(p)
+    return os.path.join(*parts) if parts else ''
+
+# "Folder" option: which main folder under Save to a video goes into
+FOLDER_AUTO = 'Auto (Music / Video)'
+FOLDER_NONE = 'None (straight in Save to)'
+DEFAULT_FOLDERS = ['Music', 'Video']
+
+def category_folder(scene_path, folder_choice, sound='generated', audio_file=None, narrated=False):
+    """The main folder (relative to Save to) for one scene. folder_choice: FOLDER_AUTO | FOLDER_NONE | a folder name
+    ('Music', 'Video', one the user added) | None (= only the scene's own <meta name="shadow-folder">, the old behaviour).
+    Auto: the scene's meta wins; else a song file as its sound (Sound Auto finds <scene>.mp3 next to it, or External file)
+    and no narration -> 'Music'; everything else (own sound, narration, silent) -> 'Video'. Pure apart from reading the scene."""
+    if folder_choice is None: return scene_out_folder(scene_path)
+    if folder_choice == FOLDER_NONE: return ''
+    if folder_choice == FOLDER_AUTO:
+        meta = scene_out_folder(scene_path)
+        if meta: return meta
+        song = not narrated and (sound == 'file' and audio_file or sound == 'auto' and find_scene_audio(scene_path))
+        return 'Music' if song else 'Video'
+    return safe_rel_folder(folder_choice)
+
+def output_place(scene_path, vertical, main=None):
+    """(folder relative to Save to, file stem) of a scene's video: <main>\\<name>\\<name>.mp4. main: the main folder from
+    category_folder() (None = the scene's own meta folder). A 9:16 render of a scene named like a Short (short_ocean.html)
+    drops the marker, so the Short lands next to the 16:9 video: ocean\\ocean_shorts.mp4."""
+    base = scene_folder_name(scene_path)
+    if vertical: base = strip_short_marker(base)
+    main = scene_out_folder(scene_path) if main is None else main
+    return os.path.join(main, base), base + ('_shorts' if vertical else '')
+
 def sound_mode(label):
     """Sound combobox label -> 'generated' | 'none' | 'file' | 'auto'."""
     return 'file' if label.startswith('External') else 'none' if label.startswith('None') else 'auto' if label.startswith('Auto') else 'generated'
@@ -181,18 +245,18 @@ def collect_scenes(paths, recursive=False):
         if k not in seen: seen.add(k); uniq.append(f)
     return uniq, problems
 
-def output_mp4(out, scene_path, vertical):
-    """The first-choice output of a scene: <out>\\<scene name>\\<scene>.mp4 (or <scene>_shorts.mp4 for 9:16)."""
-    base = scene_folder_name(scene_path)
-    return os.path.join(out, base, base + ('_shorts' if vertical else '') + '.mp4')
+def output_mp4(out, scene_path, vertical, main=None):
+    """The first-choice output of a scene: <out>\\[main folder]\\<scene name>\\<scene>.mp4 (or <name>_shorts.mp4 for 9:16), see output_place."""
+    sub, stem = output_place(scene_path, vertical, main)
+    return os.path.join(out, sub, stem + '.mp4')
 
-def up_to_date(scene_path, out, vertical, deps=(), expect=None):
+def up_to_date(scene_path, out, vertical, deps=(), expect=None, main=None):
     """The existing output mp4 if this scene does not need rendering again, else None: <out>\\<scene>\\<scene>.mp4 (or
     _shorts.mp4) exists, is not empty and is newer than the scene file and every file in deps (the song / narration voice
     / words.json it uses). expect=(w, h): the mp4 must also have that size (a Draft render does not count for Best);
     when the size cannot be read (no ffprobe) the age check alone decides. Good and Best have the same size, so switching
     between them is not detected: untick "Skip already rendered" to force a new render."""
-    first = output_mp4(out, scene_path, vertical); folder = os.path.dirname(first); stem = os.path.splitext(os.path.basename(first))[0]
+    first = output_mp4(out, scene_path, vertical, main); folder = os.path.dirname(first); stem = os.path.splitext(os.path.basename(first))[0]
     pat = re.compile(re.escape(stem) + r'(_\d+)?\.mp4$', re.I)   # <scene>.mp4, <scene>_2.mp4 ... (a re-render after a change is _2)
     try:
         cands = [os.path.join(folder, n) for n in os.listdir(folder) if pat.match(n)] if os.path.isdir(folder) else []
@@ -450,10 +514,10 @@ def render_scene(f, preset, out, opts, narr=None, cancel=None, progress=lambda *
         fmt_name = '9:16 (Shorts)' if opts['vertical'] else '16:9 (YouTube)'
     opts.pop('format', None)   # render_item / render_core do not take it
     opts['vertical'] = bool(opts.get('vertical'))
-    base = scene_folder_name(f); folder = os.path.join(out, base)
-    name = base + ('_shorts' if opts['vertical'] else '')
+    main = category_folder(f, opts.pop('folder', None), opts.get('sound', 'generated'), opts.get('audio_file'), narrated=bool(narr or embedded))
+    sub, name = output_place(f, opts['vertical'], main); folder = os.path.join(out, sub)
     if skip_done:   # already rendered and nothing it uses changed since: keep that file, render nothing
-        old = up_to_date(f, out, opts['vertical'], render_deps(f, opts, narr), expect=expected_size(preset, opts['vertical']))
+        old = up_to_date(f, out, opts['vertical'], render_deps(f, opts, narr), expect=expected_size(preset, opts['vertical']), main=main)
         if old:
             log.info('skipped %s: %s is up to date', f, old)
             return dict(status='skipped', row=SKIPPED_UP_TO_DATE, mp4=old, dur=None, error=None, log=None, qc=None, qc_report=None,
@@ -636,6 +700,7 @@ class App(Root):
         # The worker takes the next 'queued' file under self.lock, so files added/removed while rendering are honoured.
         self.state = {}; self.lock = threading.Lock()
         self.narr = {}   # path -> narration settings for that file (see narrate_for_render); set by the UI later
+        self.out_mp4 = {}   # path -> the mp4s this session rendered (or found up to date) for that row: the YouTube dialog uploads them
         self.embedded = set()   # files whose HTML already carries narration (shown as [voice embedded], never narrated again)
         self.theme_choice = cfg.get('theme') if cfg.get('theme') in ('dark', 'light') else None   # None = follow Windows
         self.theme = self.theme_choice or system_theme()
@@ -651,6 +716,8 @@ class App(Root):
         self.check_thread = None; self.check_results = []; self.check_kw = {}   # Check frames (check_kw: tests pass Chrome options)
         f = cfg.get('format'); self.fmt = tk.StringVar(value=f if f in FORMAT_CHOICES else '16:9 (YouTube)')
         c = cfg.get('capture'); self.capture = tk.StringVar(value=c if c in CAPTURES else next(iter(CAPTURES)))
+        self.folders = [safe_rel_folder(x) for x in cfg.get('folders', DEFAULT_FOLDERS) if safe_rel_folder(x)] or list(DEFAULT_FOLDERS)
+        fc = cfg.get('folder', FOLDER_AUTO); self.folder_choice = tk.StringVar(value=fc if fc in self.folder_values() else FOLDER_AUTO)
         e = cfg.get('blender_engine'); self.bl_engine = tk.StringVar(value=e if e in BLENDER_ENGINES else BLENDER_ENGINES[0])
         s = cfg.get('sound'); self.snd = tk.StringVar(value=s if s in SOUNDS else SOUNDS[0]); self.snd_file = tk.StringVar(value=cfg.get('sound_file', ''))
         # Assistant panel (assistant.py: Claude Code CLI headless, the owner's subscription). ai_kw: tests pass a fake CLI
@@ -788,7 +855,7 @@ class App(Root):
             b = btns[t] = ttk.Button(bt, text=t, command=c); b.grid(row=0, column=i, sticky='we', padx=(0 if i == 0 else 6, 0))
             bt.columnconfigure(i, weight=1, uniform='b')
         self.check_btn = btns['Check frames']
-        self.narr_btn = b; self.narr_btn.config(state='disabled')   # enabled when one row is selected that can take narration
+        self.narr_btn = btns['Narration...']; self.narr_btn.config(state='disabled')   # enabled when one row is selected that can take narration
 
         # options
         op = ttk.LabelFrame(self, text='Options', padding=10); op.pack(fill='x', padx=P)
@@ -804,6 +871,11 @@ class App(Root):
         ttk.Label(op, text='Save to').grid(row=5, column=0, sticky='w', pady=3)
         ttk.Entry(op, textvariable=self.out_dir).grid(row=5, column=1, columnspan=2, sticky='we', padx=10, pady=3)
         ttk.Button(op, text='Browse...', command=self.pick_out).grid(row=5, column=3, sticky='e')
+        ttk.Label(op, text='Folder').grid(row=6, column=0, sticky='w', pady=3)
+        self.folder_box = ttk.Combobox(op, textvariable=self.folder_choice, values=self.folder_values(), state='readonly', width=32)
+        self.folder_box.grid(row=6, column=1, sticky='w', padx=10, pady=3)
+        ttk.Label(op, text='Auto: songs -> Music, the rest -> Video (Short + video share one folder)', foreground='#888').grid(row=6, column=2, sticky='w')
+        ttk.Button(op, text='New folder...', command=self.add_main_folder).grid(row=6, column=3, sticky='e')
         op.columnconfigure(2, weight=1)
 
         # progress
@@ -819,9 +891,10 @@ class App(Root):
         self.go = ttk.Button(act, text='Render', style='Accent.TButton', command=self.start)
         self.stop_cur = ttk.Button(act, text='Cancel current', command=self.do_cancel_current, state='disabled')
         self.stop = ttk.Button(act, text='Stop queue', command=self.do_cancel, state='disabled')
-        for i, w in enumerate((self.go, self.stop_cur, self.stop, ttk.Button(act, text='Open folder', command=self.open_out), ttk.Button(act, text='Open log', command=self.open_log))):
+        self.yt_btn = ttk.Button(act, text='YouTube...', command=self.open_youtube_dialog)
+        for i, w in enumerate((self.go, self.stop_cur, self.stop, ttk.Button(act, text='Open folder', command=self.open_out), ttk.Button(act, text='Open log', command=self.open_log), self.yt_btn)):
             w.grid(row=0, column=i, sticky='we', padx=(0 if i == 0 else 6, 0)); act.columnconfigure(i, weight=1, uniform='a')
-        chk = ttk.Frame(act); chk.grid(row=1, column=0, columnspan=5, sticky='w', pady=(8, 0))
+        chk = ttk.Frame(act); chk.grid(row=1, column=0, columnspan=6, sticky='w', pady=(8, 0))
         for t, v in (('Open folder when done', self.open_when_done), ('Skip scenes already rendered (up to date)', self.skip_done),
                      ('Notify me when the queue ends', self.notify)):
             ttk.Checkbutton(chk, text=t, variable=v).pack(side='left', padx=(0, 18))
@@ -1061,6 +1134,27 @@ class App(Root):
     def pick_out(self):
         d = filedialog.askdirectory(initialdir=self.out_dir.get())
         if d: self.out_dir.set(d)
+    def youtube_items(self):
+        """(mp4, scene) pairs for the YouTube dialog: the videos this session made for the selected rows (all rows if none
+        is selected), newest render of each output last."""
+        sel = set(self.tree.selection())
+        rows = [f for f in self.files if not sel or self.rows.get(f) in sel]
+        return [(m, f) for f in rows for m in self.out_mp4.get(f, []) if os.path.isfile(m)]
+    def open_youtube_dialog(self):
+        try: return YouTubeDialog(self, self.youtube_items())
+        except Exception as e:
+            log.exception('youtube dialog'); messagebox.showerror('YouTube', str(e)); return None
+    def folder_values(self):
+        """The Folder combobox: Auto, the main folders (Music, Video, the ones added), None."""
+        return [FOLDER_AUTO, *self.folders, FOLDER_NONE]
+    def add_main_folder(self, name=None):
+        """New folder...: add a main folder name (e.g. 'Kids') to the Folder list and select it. Saved in the settings."""
+        from tkinter import simpledialog
+        name = safe_rel_folder(name if name is not None else simpledialog.askstring('New folder', 'Folder name (inside Save to), e.g. Kids:', parent=self) or '')
+        if not name: return
+        if name.lower() not in (x.lower() for x in self.folders): self.folders.append(name)
+        self.folder_box.config(values=self.folder_values()); self.folder_choice.set(next(x for x in self.folders if x.lower() == name.lower()))
+        self.save()
     def open_out(self):
         d = self.out_dir.get(); os.makedirs(d, exist_ok=True); open_path(d)
     def open_log(self):
@@ -1069,6 +1163,7 @@ class App(Root):
     def save(self):
         save_cfg({'out': self.out_dir.get(), 'preset': self.preset.get(), 'open': self.open_when_done.get(), 'format': self.fmt.get(),
                   'skip_done': self.skip_done.get(), 'notify': self.notify.get(),
+                  'folder': self.folder_choice.get(), 'folders': self.folders,
                   'assistant_open': self.ai_open, 'assistant_dir': self.ai_dir_choice,
                   'capture': self.capture.get(), 'blender_engine': self.bl_engine.get(), 'sound': self.snd.get(), 'sound_file': self.snd_file.get(), **({'theme': self.theme_choice} if self.theme_choice else {})})
     def on_close(self):
@@ -1109,7 +1204,7 @@ class App(Root):
             for f in self.files: self.state[f] = 'queued' if f in keep else 'skipped'
         self.opts = dict(vertical=vertical, format=fmt_name, sound=mode, audio_file=self.snd_file.get() or None,
                          capture=CAPTURES.get(self.capture.get(), 'png'), engine=blender_engine(self.bl_engine.get()), device='auto',
-                         skip_done=bool(self.skip_done.get()))
+                         skip_done=bool(self.skip_done.get()), folder=self.folder_choice.get())
         self._spf = {}; self._run_t0 = {}; self._cur_left = None   # time estimate: measured again in every batch
         self.cancel.clear(); self.go.config(state='disabled'); self.stop.config(state='normal'); self.stop_cur.config(state='normal')
         self.bar['value'] = 0; self.pct.config(text='0%')
@@ -1168,6 +1263,10 @@ class App(Root):
         if r['status'] == 'done': done.append(r['mp4'])
         elif r['status'] == 'error': failed.append(r['error'])
         elif r['status'] == 'skipped' and skipped is not None: skipped.append(r['mp4'])
+        store = getattr(self, 'out_mp4', None)   # the YouTube dialog's list (tests call _run_one on stand-ins without it)
+        if store is not None and r['status'] in ('done', 'skipped') and r.get('mp4'):
+            lst = store.setdefault(f, [])
+            if r['mp4'] not in lst: lst.append(r['mp4'])
         self.q.put(('row', f, r['row'], r['dur']))
 
     # ------------------------------------------------------------------ time estimate (Time column + the line under the bar)
@@ -1508,6 +1607,122 @@ class App(Root):
         if getattr(self, 'check_window_off', False): return None   # tests
         try: return CheckWindow(self, f, res)
         except Exception: log.exception('check window'); return None
+
+class YouTubeDialog:
+    """YouTube...: upload rendered videos to a signed-in channel (youtube.py, YouTube Data API, your own OAuth client).
+    Titles / descriptions / tags / Made for Kids come from metadata.txt next to the video or next to its scene ('=== SHORT ===' section
+    for *_shorts.mp4). Privacy defaults to Private. Until the Google Cloud project passes YouTube's audit, YouTube keeps every
+    API upload Private whatever is chosen. upload() runs in a thread; tests call add()/start() with youtube.py patched."""
+    def __init__(self, app, items):
+        import youtube as ytm
+        self.app, self.ytm, self.items, self.cancel, self.busy, self.last = app, ytm, [], threading.Event(), False, None
+        t = self.top = tk.Toplevel(app); t.title('Upload to YouTube'); t.transient(app); t.minsize(640, 360)
+        f = ttk.Frame(t, padding=14); f.pack(fill='both', expand=True)
+        ttk.Label(f, text='Channel').grid(row=0, column=0, sticky='w')
+        self.channel = tk.StringVar(); self.ch_box = ttk.Combobox(f, textvariable=self.channel, state='readonly', width=34)
+        self.ch_box.grid(row=0, column=1, sticky='w', padx=8)
+        ttk.Button(f, text='Sign in...', command=self.sign_in).grid(row=0, column=2, sticky='w')
+        self.tree = ttk.Treeview(f, columns=('title', 'status'), height=6)
+        for c, w, txt in (('#0', 220, 'Video'), ('title', 260, 'Title (metadata.txt)'), ('status', 150, 'Status')):
+            self.tree.heading(c, text=txt); self.tree.column(c, width=w, stretch=c != 'status')
+        self.tree.grid(row=1, column=0, columnspan=4, sticky='nsew', pady=10)
+        self.tree.bind('<Double-1>', lambda e: self.open_selected())
+        ttk.Label(f, text='Privacy').grid(row=2, column=0, sticky='w')
+        self.privacy = tk.StringVar(value='private')
+        ttk.Combobox(f, textvariable=self.privacy, values=list(ytm.PRIVACY), state='readonly', width=12).grid(row=2, column=1, sticky='w', padx=8)
+        self.kids = tk.BooleanVar(value=False)
+        ttk.Checkbutton(f, text='Made for kids', variable=self.kids).grid(row=2, column=2, sticky='w')
+        ttk.Label(f, text='Until Google approves the app (YouTube API audit), YouTube keeps API uploads Private.',
+                  foreground='#888').grid(row=3, column=0, columnspan=4, sticky='w', pady=(6, 0))
+        self.bar = ttk.Progressbar(f, maximum=100); self.bar.grid(row=4, column=0, columnspan=4, sticky='we', pady=(10, 0))
+        self.msg = ttk.Label(f, text='', foreground='#888'); self.msg.grid(row=5, column=0, columnspan=4, sticky='w')
+        bt = ttk.Frame(f); bt.grid(row=6, column=0, columnspan=4, sticky='we', pady=(10, 0))
+        ttk.Button(bt, text='Add video...', command=self.pick).pack(side='left')
+        ttk.Button(bt, text='Remove', command=self.remove).pack(side='left', padx=6)
+        self.studio_btn = ttk.Button(bt, text='Open in Studio', command=self.open_selected, state='disabled'); self.studio_btn.pack(side='left')
+        ttk.Button(bt, text='Close', command=self.close).pack(side='right')
+        self.up_btn = ttk.Button(bt, text='Upload', style='Accent.TButton', command=self.start); self.up_btn.pack(side='right', padx=6)
+        f.columnconfigure(3, weight=1); f.rowconfigure(1, weight=1)
+        t.protocol('WM_DELETE_WINDOW', self.close); t.bind('<Escape>', lambda e: self.close())
+        dark_titlebar(t, app.theme == 'dark')
+        self.refresh_channels()
+        for mp4, scene in items: self.add(mp4, scene)
+        if not self.items: self.msg.config(text='Render first, or "Add video..." to pick mp4 files.')
+
+    def refresh_channels(self, select=None):
+        ch = self.ytm.channels(); names = [c['title'] for c in ch]
+        self.ch_box.config(values=names)
+        if select: self.channel.set(select)
+        elif self.channel.get() not in names: self.channel.set(names[0] if len(names) == 1 else '')
+        try: self.ytm.load_client()
+        except self.ytm.YouTubeError as e: self.msg.config(text=str(e))
+
+    def add(self, mp4, scene=None):
+        if any(i['mp4'] == mp4 for i in self.items): return
+        meta, src = self.ytm.metadata_for(mp4, [os.path.dirname(scene)] if scene else [])
+        it = dict(mp4=mp4, meta=meta, src=src, result=None)
+        it['iid'] = self.tree.insert('', 'end', text=os.path.basename(mp4),
+                                     values=((meta or {}).get('title') or '(no metadata.txt: file name)', 'Ready'))
+        self.items.append(it)
+        if meta and meta.get('kids') is not None and len(self.items) == 1: self.kids.set(bool(meta['kids']))
+
+    def pick(self):
+        for p in filedialog.askopenfilenames(parent=self.top, filetypes=[('MP4 video', '*.mp4')], initialdir=self.app.out_dir.get()): self.add(p)
+
+    def remove(self):
+        if self.busy: return
+        sel = set(self.tree.selection())
+        for it in [i for i in self.items if i['iid'] in sel]: self.tree.delete(it['iid']); self.items.remove(it)
+
+    def sign_in(self):
+        if self.busy: return
+        self.msg.config(text='Sign in on the Google page that opened in your browser...')
+        def work():
+            try: ch = self.ytm.sign_in(); self.top.after(0, lambda: (self.refresh_channels(ch['title']), self.msg.config(text=f"Signed in: {ch['title']}")))
+            except Exception as e: self.top.after(0, lambda e=e: self.msg.config(text=f'Sign-in failed: {e}'))
+        threading.Thread(target=work, daemon=True).start()
+
+    def start(self, wait=False):
+        """Upload every video that is not uploaded yet. wait=True (tests) runs in this thread."""
+        if self.busy:
+            self.cancel.set(); self.msg.config(text='Stopping after the current chunk...'); return
+        todo = [i for i in self.items if not i['result']]
+        if not todo: self.msg.config(text='Nothing to upload.'); return
+        if not self.channel.get(): self.msg.config(text='Choose a channel (or Sign in...).'); return
+        self.busy = True; self.cancel.clear(); self.up_btn.config(text='Stop'); ch = self.channel.get()
+        privacy, kids = self.privacy.get(), self.kids.get()
+        def set_row(it, status): self.top.after(0, lambda: self.tree.set(it['iid'], 'status', status))
+        def work():
+            ok = 0
+            for n, it in enumerate(todo):
+                set_row(it, 'Uploading 0%')
+                def prog(d, t, it=it, n=n):
+                    pct = d * 100 // max(t, 1); set_row(it, f'Uploading {pct}%')
+                    self.top.after(0, lambda: self.bar.config(value=(n + d / max(t, 1)) * 100 / len(todo)))
+                try:
+                    r = self.ytm.upload_video(it['mp4'], ch, it['meta'], privacy, progress=prog, cancel=self.cancel,
+                                              overrides=dict(kids=kids, privacy=privacy))
+                    it['result'] = r; self.last = r; ok += 1; set_row(it, f"Done ({r.get('privacy') or privacy})")
+                    log.info('youtube upload %s -> %s %s', it['mp4'], r['channel'], r['url'])
+                except Exception as e:
+                    set_row(it, 'Stopped' if self.cancel.is_set() else 'Error'); log.warning('youtube upload %s: %s', it['mp4'], e)
+                    self.top.after(0, lambda e=e: self.msg.config(text=str(e)))
+                    if self.cancel.is_set(): break
+            def end():
+                self.busy = False; self.up_btn.config(text='Upload')
+                if ok: self.studio_btn.config(state='normal'); self.msg.config(text=f'{ok} uploaded to {ch}. Double-click a row to open it in YouTube Studio.')
+            self.top.after(0, end)
+        if wait: work()
+        else: threading.Thread(target=work, daemon=True).start()
+
+    def open_selected(self):
+        sel = set(self.tree.selection())
+        it = next((i for i in self.items if i['iid'] in sel and i['result']), None) or (self.last and {'result': self.last})
+        if it: webbrowser.open(it['result']['studio'])
+
+    def close(self):
+        if self.busy and not messagebox.askyesno('YouTube', 'An upload is running. Stop it and close?', parent=self.top): return
+        self.cancel.set(); self.top.destroy()
 
 class NarrationDialog:
     """Small dialog for one queue row: narration WAV, words.json, style, captions; OK / Remove narration / Cancel.

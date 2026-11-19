@@ -141,8 +141,20 @@ def main():
         fm([(n, o['vertical'], 'format' in o, o['audio_file'] and os.path.basename(o['audio_file'])) for n, o in calls],
            [('short_song-a.html', True, False, 'short_song-a.mp3'), ('song-a.html', False, False, 'song-a.flac')],
            'worker: one queue, short_ -> 9:16 and the other 16:9 (own audio each; "format" not passed to the renderer)')
-        fm(sorted(os.path.relpath(x, out2).replace(os.sep, '/') for x in done), ['short_song-a/short_song-a_shorts.mp4', 'song-a/song-a.mp4'],
-           'output names: <short_name>/<short_name>_shorts.mp4 and <name>/<name>.mp4')
+        fm(sorted(os.path.relpath(x, out2).replace(os.sep, '/') for x in done), ['song-a/song-a.mp4', 'song-a/song-a_shorts.mp4'],
+           'output names: the Short short_song-a.html lands next to the video: song-a/song-a_shorts.mp4 and song-a/song-a.mp4')
+        # ---- strip_short_marker / output_place: the Short's folder = the video's folder; <meta name="shadow-folder"> = channel folder
+        fm([app.strip_short_marker(x) for x in ('short_rain', 'Rain-Short', 'rain_shorts', 'rain short', 'rain', 'short_', 'shortcake')],
+           ['rain', 'Rain', 'rain', 'rain', 'rain', 'short_', 'shortcake'], 'strip_short_marker (prefix, suffixes, any case; nothing left -> unchanged)')
+        mus = put('neon.html'); open(mus, 'w', encoding='utf-8').write('<head><meta name="shadow-folder" content="Music"></head>')
+        msh = put('short_neon.html'); open(msh, 'w', encoding='utf-8').write("<meta name='shadow-folder' content='Music'>")
+        fm((app.output_place(mus, False), app.output_place(msh, True), app.output_place(msh, False)),
+           ((os.path.join('Music', 'neon'), 'neon'), (os.path.join('Music', 'neon'), 'neon_shorts'), (os.path.join('Music', 'short_neon'), 'short_neon')),
+           'meta shadow-folder: Music\\neon\\neon.mp4 + neon_shorts.mp4; a short_ file rendered 16:9 keeps its name')
+        bad = put('bad.html'); open(bad, 'w', encoding='utf-8').write('<meta name="shadow-folder" content="../../Win:dows/ con /x?">')
+        fm(app.scene_out_folder(bad), os.path.join('Windows', '_con', 'x'), 'meta folder made safe: no .., no : ? , reserved names prefixed')
+        fm((app.scene_out_folder(a_html), app.scene_out_folder(os.path.join(d, 'missing.html'))), ('', ''), 'no meta / missing file -> no channel folder')
+        fm(app.output_mp4('O', mus, True), os.path.join('O', 'Music', 'neon', 'neon_shorts.mp4'), 'output_mp4 uses output_place')
         fm((failed, [w for w in warns if 'expected' in w]), ([], []), 'no failure, no size warning (expected size per file)')
         fm(Fake.opts['format'], AUTO, 'the shared queue options are not changed by the worker')
     finally:

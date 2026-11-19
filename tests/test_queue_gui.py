@@ -85,6 +85,9 @@ def temps(): return sorted(f for f in os.listdir(scenes_dir) if f.startswith('.s
 
 a = app.App(); a.withdraw()
 a.open_when_done.set(False); a.skip_done.set(False); a.notify.set(False)   # Q12 expects _2; no toasts from tests
+a.folder_choice.set(app.FOLDER_NONE)   # the Q checks below look at <out>\<scene>\ (Folder = Auto is checked in test_queue_logic / test_mcp_server)
+_fv = a.folder_values()
+assert _fv[0] == app.FOLDER_AUTO and _fv[-1] == app.FOLDER_NONE and 'Music' in _fv and 'Video' in _fv, _fv
 a.preset.set('Test (640 px)'); a.fmt.set('16:9 (YouTube)'); a.snd.set(app.SOUNDS[0])
 results = {}; checks = []
 BLOCKED_MSG = "can't be removed"      # part of the status-line message when the running file is asked to go
@@ -448,10 +451,10 @@ def q13_end():
     check('Q13', 'no 9:16 warning for the outdated 16:9 scene', not results['Q13_asked'], len(results['Q13_asked']), 'not asked')
     check('Q13', 'row status', [r[1] for r in rows()] == ['Done', 'Done', 'Done (silent)'], names(rows()), 'Done, Done, Done (silent) (the outdated fixture has no sound)')
     check('Q13', 'one queue: short_q -> _shorts.mp4 360x640, the others .mp4 640x360',
-          files == ['q_b/q_b.mp4', 'q_oldwide/q_oldwide.mp4', 'short_q/short_q_shorts.mp4']
-          and sizes.get('short_q/short_q_shorts.mp4', (0,))[:2] == (360, 640)
+          files == ['q/q_shorts.mp4', 'q_b/q_b.mp4', 'q_oldwide/q_oldwide.mp4']
+          and sizes.get('q/q_shorts.mp4', (0,))[:2] == (360, 640)
           and sizes.get('q_b/q_b.mp4', (0,))[:2] == (640, 360) and sizes.get('q_oldwide/q_oldwide.mp4', (0,))[:2] == (640, 360),
-          ', '.join(f'{f} {v}' for f, v in sizes.items()) or 'none', 'q_b/q_b.mp4 640x360, q_oldwide/q_oldwide.mp4 640x360, short_q/short_q_shorts.mp4 360x640')
+          ', '.join(f'{f} {v}' for f, v in sizes.items()) or 'none', 'q_b/q_b.mp4 640x360, q_oldwide/q_oldwide.mp4 640x360, q/q_shorts.mp4 360x640 (Short next to its video)')
     extra = [p for m in other_msgs() for p in m[2].splitlines() if p.strip() and 'rendered silent' not in p and ' QC ' not in p]
     check('Q13', 'no size / setup warnings (only the silent-scene note)', not extra, '; '.join(extra) or 'none', 'none')
     a.fmt.set('16:9 (YouTube)')

@@ -8,3 +8,7 @@ build/
 kit_captions/run/*.mp4
 Shadow.spec
 scenes/*/
+
+# YouTube upload: OAuth client + tokens live in %USERPROFILE%, never in the repo
+.shadow_youtube_*.json
+client_secret*.json
