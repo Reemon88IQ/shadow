@@ -10,7 +10,8 @@ import argparse, fnmatch, io, os, shutil, subprocess, sys, tarfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # what goes public (paths or globs, matched against files tracked in HEAD); everything else stays private
 PUBLIC = ['app.py', 'render_core.py', 'blender_core.py', 'qc.py', 'updater.py', 'tools/blender/*', 'tools/mcp_server.py',
-          'tools/check_frames.py', 'docs/MCP.md', 'docs/BLENDER.md', 'claude-skills/shadow-mcp/*', 'README.md', 'LICENSE', '.gitignore',
+          'tools/check_frames.py', 'docs/MCP.md', 'docs/BLENDER.md', 'claude-skills/shadow-mcp/*', 'CHANGELOG.md', 'docs/banner.png', 'docs/demo.gif', 'docs/screenshot_light.png',
+          'docs/social_preview.png', '.github/ISSUE_TEMPLATE/*', 'tools/make_brand_images.py', 'README.md', 'LICENSE', '.gitignore',
           'install.bat', 'build_exe.bat', 'build_installer.bat', 'release.bat', 'run.bat', 'publish_update.bat',
           'installer/shadow.iss', 'assets/shadow.ico', 'assets/shadow_1024.png', 'docs/screenshot.png',
           'tools/narrate/*', 'tools/publish_public.py', 'tools/publish_update.py', 'tests/*.py', 'tests/fixtures/*', 'tests/fixtures/qc/*']

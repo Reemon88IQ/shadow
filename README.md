@@ -1,37 +1,99 @@
-# Shadow
+<p align="center">
+  <img src="docs/banner.png" alt="Shadow - HTML and Blender scenes to MP4 for YouTube and Shorts" width="100%">
+</p>
 
-Free Windows app that renders self-contained **three.js / canvas HTML scenes** into **MP4 videos**
-(1080p, 30 fps, with sound), 16:9 for YouTube or 9:16 for Shorts. Made for code-made motion-graphics channels:
-write (or generate) a scene as one `.html` file, drop it in Shadow, get a clean, frame-exact video.
+<p align="center">
+  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Reemon88IQ/shadow?label=download&color=ff7a30"></a>
+  <a href="../../releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/Reemon88IQ/shadow/total?color=6b5bd2"></a>
+  <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0b0a18">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/Reemon88IQ/shadow?color=2ea043"></a>
+  <a href="docs/MCP.md"><img alt="Claude MCP" src="https://img.shields.io/badge/Claude-MCP%20ready-d97757"></a>
+</p>
 
-![Shadow](docs/screenshot.png)
+<p align="center">
+  <b>Free Windows app that turns code-made scenes into finished videos.</b><br>
+  Write (or generate) a scene as one <code>.html</code> file - or build it in Blender - drop it in Shadow,
+  and get a clean, frame-exact MP4 with sound, for YouTube (16:9) and Shorts (9:16).
+</p>
 
-## Install
+<p align="center">
+  <a href="../../releases/latest"><b>Download</b></a> &nbsp;·&nbsp;
+  <a href="#quick-start">Quick start</a> &nbsp;·&nbsp;
+  <a href="#features">Features</a> &nbsp;·&nbsp;
+  <a href="#use-shadow-from-claude-mcp">Claude (MCP)</a> &nbsp;·&nbsp;
+  <a href="CHANGELOG.md">Changelog</a> &nbsp;·&nbsp;
+  <a href="#بالعربي">بالعربي</a>
+</p>
 
-1. Download `Shadow-<version>-Setup.exe` from [Releases](../../releases/latest) and run it
-   (no admin needed; Windows SmartScreen may warn because the app is not code-signed: *More info → Run anyway*).
+<p align="center">
+  <img src="docs/demo.gif" alt="A narrated diagram scene rendered by Shadow" width="760">
+  <br><sub>A narrated diagram scene rendered by Shadow: voice, word captions, motion, all from one HTML file.</sub>
+</p>
+
+## Quick start
+
+1. **Download** `Shadow-<version>-Setup.exe` from [Releases](../../releases/latest) and run it. No admin needed.
+   Windows SmartScreen may warn because the app is not code-signed: choose *More info* → *Run anyway*.
 2. The setup offers to install what is missing with winget: **Google Chrome** and **ffmpeg** (both free).
-3. Start Shadow from the Desktop / Start menu. New versions show an **Update** button in the app.
+3. Open Shadow, **drop your scenes** in, press **Render**. That's it.
 
-## Use
+New versions show an **Update to vX.Y** button inside the app and install themselves.
 
-Add `.html` scenes or Blender `.blend` files (drag and drop or *Add...*), pick quality, format (16:9, 9:16 or *Auto*:
-files named `short_*` or `*-short` render 9:16),
-sound and the output folder, press **Render**. Every scene gets its own folder with the `.mp4`, a quality-check report
-(`.qc.txt`: black frames, freezes, silence, loudness) and, if it failed, a log. Existing files are never overwritten.
+## Features
 
-- **Sound**: the scene's own generated sound, an external file (loudness-normalised to -15 LUFS, true-peak limited),
-  *Auto* (`<scene>.wav/.mp3/...` next to the scene) or silent.
-- **Narration**: a voice WAV + word timings (`words.json`) are mixed in and shown as word captions (2D canvas scenes).
-- **Capture**: *Best quality (PNG)* or *Fast (JPEG)*, about 2x faster with a very slightly softer picture.
-- **Blender**: `.blend` files render through your installed Blender (Eevee, Cycles or Workbench) with the same sound,
-  Shorts and quality check - see [docs/BLENDER.md](docs/BLENDER.md).
-- **Command line**: `Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent] [--fast]`
+| | |
+|---|---|
+| **Frame-exact video** | Every frame is drawn on purpose (`seek(t)`), so the video is identical every time - no dropped frames, no screen recording. |
+| **1080p, 30 fps, with sound** | The scene's own generated sound, a song or voice file next to it (*Auto*), or silent. Loudness is set to about -15 LUFS and checked *after* encoding. |
+| **YouTube + Shorts in one go** | *Format Auto*: files named `short_*` or `*-short` render 9:16, the rest 16:9 - one queue, both formats. |
+| **Quality check on every video** | A `.qc.txt` report: size, duration, black frames, freezes, silence, loudness and true peak. |
+| **Narration with captions** | Put `<scene>.wav` + `<scene>.words.json` next to the scene: the voice is mixed in and word captions appear (2D canvas scenes). |
+| **Blender scenes** | `.blend` files render through your installed Blender (Eevee, Cycles on the GPU, or Workbench) with the same sound, Shorts and QC. [Guide](docs/BLENDER.md) |
+| **Fast or best** | *Capture*: Best quality (PNG, default) or Fast (JPEG, about 2x faster, very slightly softer). |
+| **Claude can run it** | A local MCP server lets Claude render, follow progress, preview frames and read QC reports for you. [Guide](docs/MCP.md) |
+| **Safe and tidy** | Each scene gets its own output folder; nothing is ever overwritten (`_2`, `_3`); failed renders leave a log. |
+| **Free and offline** | No accounts, no paid services, nothing uploaded. Only your scenes' own CDN links (e.g. three.js) need the internet. |
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="Shadow, dark theme" width="49%">
+  <img src="docs/screenshot_light.png" alt="Shadow, light theme" width="49%">
+</p>
+
+## How it works
+
+```mermaid
+flowchart LR
+  A["scene.html<br>or scene.blend"] --> B["Shadow"]
+  S["song / voice<br>(optional)"] --> B
+  B --> C["Chrome (headless)<br>or Blender<br>draws frame t"]
+  C --> D["ffmpeg<br>x264 + AAC"]
+  D --> E["video.mp4<br>+ video_shorts.mp4"]
+  E --> F["quality check<br>.qc.txt"]
+```
+
+Shadow opens each scene in your installed Chrome (or Blender), asks for one frame at a time, and pipes the frames straight
+into ffmpeg while the sound is rendered and loudness-matched. Nothing depends on how fast your PC is: a slow machine just
+takes longer and produces the same video.
+
+## Make a scene
+
+A scene is one HTML file that provides:
+
+- `<canvas id="c">`; with `?render=1` in the URL it must not autoplay
+- `window.__ready = true` once loaded, and `window.DURATION` (seconds)
+- `window.seek(t)` draws exactly the frame at time `t` (a pure function of `t`: no real-time loop, no `Math.random` - use a seeded random)
+- the size from the `w` and `h` URL parameters (read `h` to support 9:16)
+- optional: `window.STYLE_SOUND(k)` + the `SOUND.renderOffline` kit for generated sound, `window.THUMBNAIL_T` for an automatic thumbnail
+
+[`tests/fixtures/webgl_min.html`](tests/fixtures/webgl_min.html) is a minimal working scene. Before a long render,
+`python tools/check_frames.py scene.html` makes a contact sheet in both formats in a few seconds and checks that `seek(t)` is pure.
+
+**Command line:** `Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent] [--fast]`
 
 ## Use Shadow from Claude (MCP)
 
-Claude (Claude Code, Claude Desktop or any MCP client) can render with Shadow for you - render a scene or a whole folder,
-follow the progress, cancel, preview frames and read the quality report - without opening the window. It is local and free
+Claude (Claude Code, Claude Desktop or any MCP client) can render with Shadow for you - a scene or a whole folder - follow
+the progress, cancel, preview frames and read the quality report, without opening the window. It is local and free
 (no API keys, nothing leaves your PC). It runs from a copy of this repository with Python, not from the installed exe:
 
 ```
@@ -43,44 +105,53 @@ claude mcp add shadow --scope user -- python C:\Shadow\tools\mcp_server.py
 Then copy `claude-skills\shadow-mcp` to `%USERPROFILE%\.claude\skills\` so Claude knows when to use it, and check with
 `claude mcp list` (`shadow: ... Connected`). Full guide, Claude Desktop setup and the tool list: [docs/MCP.md](docs/MCP.md).
 
-## Scene contract
+## FAQ
 
-A scene is one HTML file with:
+**Windows warns "Windows protected your PC".** The installer is not code-signed (a certificate costs money). Choose
+*More info* → *Run anyway*. The file on the release page has its SHA-256 listed, so you can check it was not changed.
 
-- `<canvas id="c">`; with `?render=1` in the URL it must not autoplay
-- `window.__ready = true` once loaded, `window.DURATION` (seconds)
-- `window.seek(t)` draws exactly the frame at time `t` (pure function of `t`; no real-time loop, no `Math.random` - use a seeded random)
-- size from the `w` and `h` URL parameters (read `h` to support 9:16)
-- optional `window.STYLE_SOUND(k)` + the `SOUND.renderOffline` kit for generated sound
+**The top bar shows "ffmpeg (missing)" right after installing.** Sign out and in once (or restart) so Windows refreshes
+the PATH, then press *Re-check*.
 
-See `tests/fixtures/webgl_min.html` for a minimal working scene.
+**Does it need a graphics card?** No. Scenes render on any PC; a GPU just makes three.js and Blender scenes faster.
+
+**My 9:16 video looks like a squeezed 16:9.** The scene must read the `h` URL parameter and lay itself out for a tall
+frame. Shadow warns before rendering a 9:16 version of a scene that does not.
+
+**Where are my settings and logs?** Settings: `%USERPROFILE%\.shadow_renderer.json`. Log: `%USERPROFILE%\shadow.log`
+(or press *Open log*). A failed render also leaves a `.log` in its output folder.
+
+Something else? [Open an issue](../../issues/new/choose).
 
 ## Build from source
 
 Python 3.12 on Windows: `run.bat` runs it from source, `build_exe.bat` builds `dist\Shadow.exe` (PyInstaller),
 `build_installer.bat` builds the setup ([Inno Setup 6](https://jrsoftware.org/isinfo.php), free).
 Tests: `python tests\regression.py`, `tests\test_queue_gui.py`, `tests\test_updater.py`, ... (`tests\smoke_test.py` runs on Linux).
-
 Release (maintainer): double-click `publish_update.bat` (asks the new version and notes, runs the tests, builds, uploads, releases).
 
 ## License
 
-MIT. Shadow uses Google Chrome (via Playwright) and ffmpeg, which are installed separately under their own licenses.
+[MIT](LICENSE). Shadow uses Google Chrome (via Playwright), ffmpeg and, for `.blend` files, Blender - all installed
+separately under their own licenses. Videos you make with Shadow are yours.
 
 ---
 
 ## بالعربي
 
-**Shadow** برنامج مجاني لويندوز يحوّل مشاهد HTML (three.js أو canvas) لفيديوهات MP4 بدقة 1080p و30 إطار مع الصوت،
-بصيغة 16:9 لليوتيوب أو 9:16 للشورتس.
+**Shadow** برنامج مجاني لويندوز يحوّل المشاهد المسوّاة بالكود (HTML: three.js أو canvas) أو بـ Blender لفيديوهات MP4
+بدقة 1080p و30 إطار ويا الصوت، بصيغة 16:9 لليوتيوب و9:16 للشورتس.
 
 **التنصيب:** نزّل `Shadow-<version>-Setup.exe` من [Releases](../../releases/latest) وشغّله. ما يحتاج صلاحيات أدمن.
 إذا طلع تحذير SmartScreen اضغط *More info* وبعدها *Run anyway*. المنصّب يعرض ينصّب Chrome وffmpeg إذا ناقصين.
 لما ينزل إصدار جديد يطلعلك زر **Update** داخل البرنامج.
 
-**الاستخدام:** اسحب ملفات `.html` للبرنامج، اختار الجودة والصيغة والصوت ومجلد الحفظ، واضغط **Render**.
-كل مشهد ينحفظ بمجلد خاص بيه، ويا الفيديو تقرير فحص جودة. وملفات Blender (`.blend`) تنرندر بنفس الطريقة إذا Blender منصّب.
+**الاستخدام:** اسحب ملفات `.html` أو `.blend` للبرنامج، اختار الجودة والصيغة والصوت ومجلد الحفظ، واضغط **Render**.
+كل مشهد ينحفظ بمجلد خاص بيه، ويا الفيديو تقرير فحص جودة. الملفات اللي اسمها يبدي بـ `short_` أو ينتهي بـ `-short`
+تطلع شورت (9:16) وحدها.
 
 **ربطه ويا Claude:** Claude يگدر يرندر بـ Shadow ويتابع التقدّم ويقرا تقرير الجودة بدون ما تفتح البرنامج. مجاني ويشتغل على
-حاسبتك بس. يحتاج نسخة من هذا الكود ويا بايثون (مو البرنامج المنصّب وحده). الخطوات بقسم *Use Shadow from Claude (MCP)* فوق،
-والشرح الكامل بـ [docs/MCP.md](docs/MCP.md).
+حاسبتك بس. يحتاج نسخة من هذا الكود ويا بايثون (مو البرنامج المنصّب وحده). الخطوات بقسم
+[Use Shadow from Claude (MCP)](#use-shadow-from-claude-mcp)، والشرح الكامل بـ [docs/MCP.md](docs/MCP.md).
+
+**مشكلة أو فكرة؟** [افتح بلاغ](../../issues/new/choose).

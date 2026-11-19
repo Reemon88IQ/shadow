@@ -143,8 +143,12 @@ def build_and_publish(new, notes, t0):
     print('[7/7] GitHub release')
     notes_file = os.path.join(ROOT, 'release_notes.txt')
     with open(notes_file, 'w', encoding='utf-8') as f:
-        f.write(f'{notes}\n\nDownload Shadow-{new}-Setup.exe below and run it, or press Update in Shadow.\n'
-                f'نزّل Shadow-{new}-Setup.exe وشغّله، أو اضغط Update داخل Shadow.\n')
+        # first paragraph = what changed (the in-app update window shows only that); then install help and the changelog
+        f.write(f'{notes}\n\n'
+                f'**Install:** download `Shadow-{new}-Setup.exe` below and run it (no admin needed; if Windows SmartScreen warns, '
+                f'choose *More info* -> *Run anyway*). **Already installed?** Open Shadow and press **Update to v{new}**.\n\n'
+                f'All changes: [CHANGELOG.md](https://github.com/Reemon88IQ/shadow/blob/main/CHANGELOG.md)\n\n'
+                f'**التنصيب:** نزّل `Shadow-{new}-Setup.exe` وشغّله، أو إذا منصّب عندك افتح Shadow واضغط **Update to v{new}**.\n')
     try: ok = run('release.bat < nul', shell=True)
     finally:
         try: os.remove(notes_file)

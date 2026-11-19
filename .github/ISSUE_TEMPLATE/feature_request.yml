@@ -1,0 +1,21 @@
+name: Feature request
+description: An idea that would make Shadow better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The video or the task you are working on, and what is missing or slow today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: How you imagine it working (a setting, a button, a scene feature, a Claude/MCP tool...).
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Examples, links, screenshots.

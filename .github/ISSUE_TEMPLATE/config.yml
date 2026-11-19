@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How to connect Claude (MCP)
+    url: https://github.com/Reemon88IQ/shadow/blob/main/docs/MCP.md
+    about: Setup and the list of tools - read this first for MCP questions.
+  - name: Blender scenes guide
+    url: https://github.com/Reemon88IQ/shadow/blob/main/docs/BLENDER.md
+    about: Engines, the 9:16 camera, sound and limits for .blend files.

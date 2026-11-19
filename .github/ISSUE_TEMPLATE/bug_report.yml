@@ -1,0 +1,51 @@
+name: Bug report
+description: Something does not work or the video comes out wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! The more of this you fill in, the faster it can be fixed.
+  - type: input
+    id: version
+    attributes:
+      label: Shadow version
+      description: Shown in the window title, e.g. "Shadow v3.10".
+      placeholder: v3.10
+    validations:
+      required: true
+  - type: dropdown
+    id: scene
+    attributes:
+      label: Scene type
+      options: [HTML scene (three.js / canvas), Blender (.blend), Both, Not about a scene (install, update, window)]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead? Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Settings you picked (Quality, Format, Sound, Capture) and what you pressed.
+      placeholder: |
+        1. Add scene.html
+        2. Quality Best, Format Auto, Sound Auto, Capture PNG
+        3. Render -> ...
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log or QC report
+      description: Press "Open log" in Shadow and paste the last lines (or the scene's `.log` / `.qc.txt` file). Remove anything private.
+      render: text
+  - type: input
+    id: windows
+    attributes:
+      label: Windows and graphics card
+      placeholder: Windows 11, NVIDIA RTX ...
