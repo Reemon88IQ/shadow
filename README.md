@@ -60,11 +60,16 @@ Every button, option, output file and QC check is explained in the **[user guide
 | **Claude can run it** | A local MCP server lets Claude render, follow progress, preview frames and read QC reports for you. Works with other MCP clients too (Gemini CLI, Cursor, VS Code, ...). [Guide](docs/MCP.md) |
 | **Assistant panel** | Ask in plain words inside the app ("render this folder and check the quality") and watch Claude do it. Runs on your Claude subscription through Claude Code, no API key. [Guide](docs/ASSISTANT.md) |
 | **Safe and tidy** | Each scene gets its own output folder; nothing is ever overwritten (`_2`, `_3`); failed renders leave a log. |
-| **Free and offline** | No accounts, no paid services, nothing uploaded. Only your scenes' own CDN links (e.g. three.js) need the internet. |
+| **Free and offline** | No Shadow account, no paid services. Nothing leaves your PC unless you press *Upload* (to your own YouTube channel). Only your scenes' own CDN links (e.g. three.js) need the internet. |
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Shadow, dark theme" width="49%">
-  <img src="docs/screenshot_light.png" alt="Shadow, light theme" width="49%">
+  <img src="docs/screenshot.png" alt="Shadow 3.12, dark theme: a song video and its Short in the queue, Folder Auto (Music / Video)" width="49%">
+  <img src="docs/screenshot_light.png" alt="Shadow 3.12, light theme" width="49%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshot_youtube.png" alt="Upload to YouTube: the rendered video and its Short with titles from metadata.txt" width="62%">
+  <br><sub><b>YouTube...</b> uploads the video and its Short with the title, description and tags from <code>metadata.txt</code> - <a href="docs/YOUTUBE.md">how to set it up</a>.</sub>
 </p>
 
 ## How it works

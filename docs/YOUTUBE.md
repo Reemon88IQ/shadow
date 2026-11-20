@@ -23,6 +23,8 @@ the app is verified - choose *Advanced → Go to Shadow*.
 
 ## Use it
 
+![The YouTube... dialog with a song video and its Short](screenshot_youtube.png)
+
 1. Render your scenes as usual.
 2. Press **YouTube...** (next to *Open log*). The dialog lists the videos you just rendered for the selected rows (or all
    rows). **Add video...** picks any other mp4.
