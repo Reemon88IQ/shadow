@@ -3,6 +3,22 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
+## 3.14
+- **Upload from Claude**: Shadow's MCP server can now upload finished videos to YouTube, so Claude can make a video, render
+  it and upload it in one go. `shadow_upload_preview` shows exactly what would be sent (title, description, tags, AI label,
+  publish time, thumbnail) and sends nothing; `shadow_upload` uploads (Private by default) and is only used after you say
+  yes; `shadow_upload_progress` / `shadow_upload_cancel` follow or stop it; `shadow_youtube` lists the signed-in channels.
+  In the Assistant panel an upload always needs your **Allow once** click.
+- **Projects**: **Project > Save project** keeps the list of scenes (in order), each row's narration and all the options
+  in a `.shadow` file next to your scenes; **Open project** (or dropping the file on Shadow) brings it all back. Paths are
+  stored relative to the project, so a moved or copied project folder still opens.
+- **Edge as a fallback browser**: without Google Chrome, Shadow renders with Microsoft Edge (same engine, part of Windows);
+  the setup bar then says *Edge (Chrome not found)*.
+- **Self-test** button (and `Shadow.exe --selftest`): renders a 2-second test scene with a tone and checks it - browser,
+  ffmpeg, frames, sound and the quality check - and says which step failed and what to install.
+- **Cleanup**: temp folders left by a render that crashed (or a PC that switched off) and installer files of updates you
+  already installed are removed when Shadow starts.
+
 ## 3.13
 - **YouTube upload, more from `metadata.txt`**: `AI: yes` marks the video as *altered or synthetic content* (YouTube's AI
   label), the thumbnail Shadow saved (`<video>_thumb.jpg`, or `THUMBNAIL: cover.jpg`) is set on the video, and a `PUBLISH:`

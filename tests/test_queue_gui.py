@@ -494,6 +494,7 @@ def main():
             app.log.removeHandler(h); h.close()
         app.LOG, app.LOG_DIR = REAL_LOG, REAL_LOG_DIR
         tempfile.tempdir = None
+        sys.modules['app'].close_log() if 'app' in sys.modules else None   # shadow.log in the temp folder is open: close it first
         shutil.rmtree(ROOT_TMP, ignore_errors=True)
     return code
 

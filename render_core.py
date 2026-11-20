@@ -1,5 +1,5 @@
 """Shadow rendering engine: HTML scene -> frames -> audio -> MP4. No GUI code here."""
-VERSION = "3.13"
+VERSION = "3.14"
 import base64, collections, functools, urllib.parse, http.server, os, shutil, subprocess, sys, tempfile, threading, time, wave, array
 
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -38,17 +38,36 @@ def x264_args():
 def find_ffmpeg():
     return shutil.which('ffmpeg')
 
+BROWSERS = (('chrome', 'Chrome', '\\Google\\Chrome\\Application\\chrome.exe', ('google-chrome', 'chrome')),
+            ('msedge', 'Edge', '\\Microsoft\\Edge\\Application\\msedge.exe', ('microsoft-edge', 'msedge')))   # preference order
+
+def find_browser():
+    """The Playwright channel of the installed browser to render with: 'chrome' (preferred), else 'msedge' (Edge ships with
+    Windows 10/11 and is the same Chromium engine), else None."""
+    for channel, _, rel, names in BROWSERS:
+        if any(os.path.exists(os.environ.get(k, '') + rel) for k in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA') if os.environ.get(k)) \
+                or any(shutil.which(n) for n in names):
+            return channel
+    return None
+
+def browser_name(channel):
+    return next((n for c, n, *_ in BROWSERS if c == channel), channel or 'none')
+
 def check_env():
-    """Returns a dict of what is available."""
+    """Returns a dict of what is available. 'chrome' = a browser to render with (Chrome or, as fallback, Edge); 'browser' names it."""
     out = {'ffmpeg': bool(find_ffmpeg()), 'playwright': False, 'chrome': False}
     try:
         import playwright  # noqa
         out['playwright'] = True
     except Exception:
         pass
-    paths = [os.environ.get(k, '') + p for k in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA') for p in ('\\Google\\Chrome\\Application\\chrome.exe',)]
-    out['chrome'] = any(os.path.exists(p) for p in paths) or bool(shutil.which('google-chrome') or shutil.which('chrome'))
+    ch = find_browser(); out['chrome'] = bool(ch); out['browser'] = browser_name(ch) if ch else None
     return out
+
+def resolve_channel(channel):
+    """render(channel=...): 'auto' -> find_browser() (Chrome, else Edge; 'chrome' when neither is found so the error names
+    Chrome); None -> Playwright's own bundled Chromium (tests); anything else as given."""
+    return (find_browser() or 'chrome') if channel == 'auto' else channel
 
 class Cancelled(Exception):
     pass
@@ -153,6 +172,52 @@ def finalize_audio(ffmpeg, wav, tmp, aac=('-c:a', 'aac', '-b:a', '192k'), target
         _ff([ffmpeg, '-y', '-i', cur, '-af', f'volume={gain:.2f}dB', '-c:a', 'pcm_s16le', nxt]); cur = nxt
     return cur
 
+# Temp folders of a render (frames never go there; audio wavs do). Removed when a render ends; a crash / power cut / killed
+# process leaves them, so clean_stale_temp() (app start, MCP server start) removes the ones whose process is gone.
+TEMP_PREFIXES = ('bq_render_', 'shadow_blend_', 'shadow_blendpv_')
+OWNER_FILE = 'owner.pid'
+
+def mark_temp_owner(folder):
+    try:
+        with open(os.path.join(folder, OWNER_FILE), 'w') as f: f.write(str(os.getpid()))
+    except OSError: pass
+
+def pid_alive(pid):
+    """True while process `pid` runs (Windows: OpenProcess + exit code STILL_ACTIVE; elsewhere signal 0)."""
+    if not pid or pid <= 0: return False
+    if pid == os.getpid(): return True
+    if os.name == 'nt':
+        import ctypes
+        k = ctypes.windll.kernel32; h = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h: return False
+        code = ctypes.c_ulong()
+        try: return bool(k.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259   # STILL_ACTIVE
+        finally: k.CloseHandle(h)
+    try: os.kill(pid, 0); return True
+    except OSError: return False
+
+def clean_stale_temp(base=None, min_age_s=600, now=None):
+    """Remove leftover render temp folders in `base` (default %TEMP%): its owner.pid process is gone, or (older Shadow, no
+    owner file) it is over a day old. Folders younger than min_age_s are always kept. -> (folders removed, bytes freed)."""
+    base = base or tempfile.gettempdir(); now = time.time() if now is None else now; n = freed = 0
+    try: names = os.listdir(base)
+    except OSError: return 0, 0
+    for name in names:
+        p = os.path.join(base, name)
+        if not name.startswith(TEMP_PREFIXES) or not os.path.isdir(p): continue
+        try:
+            age = now - os.path.getmtime(p)
+            if age < min_age_s: continue
+            try:
+                with open(os.path.join(p, OWNER_FILE)) as f: alive = pid_alive(int(f.read().strip() or 0))
+            except (OSError, ValueError): alive = age < 86400
+            if alive: continue
+            size = sum(os.path.getsize(os.path.join(r, x)) for r, _, fs in os.walk(p) for x in fs)
+            shutil.rmtree(p)
+            n += 1; freed += size
+        except OSError: continue
+    return n, freed
+
 READY_TIMEOUT_MS = 180000   # how long a scene may take to set window.__ready (big textures / fonts over a slow line)
 
 def _part_path(out_mp4):
@@ -160,7 +225,7 @@ def _part_path(out_mp4):
     root, ext = os.path.splitext(os.path.abspath(out_mp4))
     return f'{root}.part{ext or ".mp4"}'
 
-def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=None, max_frames=None, channel='chrome', extra_args=(), vertical=False, sound='generated', audio_file=None, info=None, capture='png', lufs=None):
+def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=None, max_frames=None, channel='auto', extra_args=(), vertical=False, sound='generated', audio_file=None, info=None, capture='png', lufs=None):
     """progress(stage, done, total[, eta]); stages in order: load, audio, frames, encode, done. cancel: threading.Event.
     sound: 'generated' | 'none' | 'file' (audio_file). capture: 'png' (lossless, default) | 'jpeg' (Fast capture).
     lufs: loudness target of the sound (None = DEFAULT_LUFS -15; songs MUSIC_LUFS -14).
@@ -177,7 +242,7 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
         raise RuntimeError('The scene cannot render: ' + CONTRACT['ready'] + '.')
     w, samples = preset['w'], preset['samples']
     cw, ch = (round(w * 9 / 16), w) if vertical else (w, round(w * 9 / 16))
-    tmp = tempfile.mkdtemp(prefix='bq_render_')
+    tmp = tempfile.mkdtemp(prefix=TEMP_PREFIXES[0]); mark_temp_owner(tmp)
     part = _part_path(out_mp4); proc = None
     class Q(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *a, **k): pass
@@ -187,7 +252,9 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
     try:
         with sync_playwright() as p:
             kw = dict(args=['--ignore-gpu-blocklist', '--enable-gpu-rasterization', *extra_args])
+            channel = resolve_channel(channel)
             if channel: kw['channel'] = channel
+            if info is not None: info['browser'] = browser_name(channel) if channel else 'bundled Chromium'
             b = p.chromium.launch(**kw)
             pg = b.new_page(viewport={'width': 1280, 'height': 720})
             errs = []

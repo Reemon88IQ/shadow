@@ -143,6 +143,8 @@ if __name__ == '__main__':
     check('U6 App: same version -> "Check for updates"; button: latest / offline warning / finds a new release', lambda: gui(False))
     after = os.path.getmtime(real_cfg) if os.path.exists(real_cfg) else None
     check('U7 real settings file untouched', lambda: (_ for _ in ()).throw(AssertionError('changed')) if before != after else None)
-    srv.shutdown(); shutil.rmtree(TMP, ignore_errors=True)
+    srv.shutdown()
+    if 'app' in sys.modules: sys.modules['app'].close_log()   # shadow.log in the temp folder is open: close it first
+    shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in results if not r[1]]
     print(f'\n{len(results) - len(bad)}/{len(results)} PASS'); sys.exit(1 if bad else 0)

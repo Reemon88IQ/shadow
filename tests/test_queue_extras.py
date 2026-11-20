@@ -286,5 +286,6 @@ try:
 except Exception:
     check('test crashed', False, traceback.format_exc())
 finally:
+    sys.modules['app'].close_log() if 'app' in sys.modules else None   # shadow.log in the temp folder is open: close it first
     shutil.rmtree(TMP, ignore_errors=True)
 print(f'\n{sum(res)}/{len(res)} passed'); sys.exit(0 if all(res) else 1)

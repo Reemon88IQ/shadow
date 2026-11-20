@@ -152,7 +152,9 @@ def main():
         # B9 preview
         pv = bc.preview(cube, out=os.path.join(tmp, 'sheet.jpg'))
         from PIL import Image
-        im = Image.open(pv['sheet']) if pv.get('sheet') else None
+        im = None
+        if pv.get('sheet'):
+            with Image.open(pv['sheet']) as f0: im = f0.copy()   # closed at once, so the temp folder can be deleted
         check('B9 preview: ok, one sheet with a 16:9 and a 9:16 row (5 frames each)', pv['ok'] and im is not None and im.height > 500
               and set(pv['info']) == {'16:9', '9:16'}, (pv['problems'], im.size if im else None))
         # B10 the GUI queue function
@@ -199,6 +201,7 @@ def main():
     except Exception:
         check('crash', False, traceback.format_exc())
     finally:
+        sys.modules['app'].close_log() if 'app' in sys.modules else None   # shadow.log in the temp folder is open: close it first
         shutil.rmtree(tmp, ignore_errors=True)
     print(f'{sum(RESULTS)}/{len(RESULTS)} passed'); return 0 if RESULTS and all(RESULTS) else 1
 

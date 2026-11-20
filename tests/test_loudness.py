@@ -81,5 +81,6 @@ try:
 except Exception as e:
     import traceback; traceback.print_exc(); check('L3 renders ran', False, e)
 
+sys.modules['app'].close_log() if 'app' in sys.modules else None   # shadow.log in the temp folder is open: close it first
 shutil.rmtree(tmp, ignore_errors=True)
 print('\nALL PASS' if not fails else f'\n{len(fails)} FAIL: {fails}'); sys.exit(1 if fails else 0)

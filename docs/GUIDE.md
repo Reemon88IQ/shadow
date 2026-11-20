@@ -165,6 +165,13 @@ or a scene in the Music folder. Narration and the scene's own sound are matched 
 level with `<meta name="shadow-lufs" content="-16">` (-24 to -9). The true peak always stays under -1 dBTP. All of this is
 measured *after* the AAC encode, so loud masters pass the quality check. Shadow only ever turns a track down, never up.
 
+## Projects
+
+**Project > Save project as...** saves the list (scenes in order, each row's narration) and the options (Quality, Format,
+Sound, Capture, Blender, Folder, Save to, Skip) in a `.shadow` file. **Project > Open project...**, dropping the file on
+Shadow, or `Shadow.exe episode.shadow` opens it again; with scenes already in the list Shadow asks whether to replace or
+add. Paths are stored relative to the project file, so keep it in the episode folder and you can move or copy the folder.
+
 ## Narration and captions
 
 Put two files next to the scene with the same name: `<scene>.wav` (the voice) and `<scene>.words.json` (word timings,
@@ -238,6 +245,7 @@ the expected size. `--fast` = Fast (JPEG) capture. `--engine` (for `.blend`): `s
 
 | Problem | What to do |
 |---|---|
+| Not sure the setup works | Press **Self-test** (setup bar, or `Shadow.exe --selftest`): it renders a 2-second test video with sound and names the step that fails. |
 | Windows says "Windows protected your PC" | The installer is not code-signed. *More info* → *Run anyway*. |
 | "ffmpeg (missing)" right after installing it | Sign out and in once (or restart) so Windows refreshes the PATH, then *Re-check*. |
 | A row says **Error** | Read `<scene>_<time>.log` in its folder (or *Open log*). The first line of the error is also shown in the message box. |

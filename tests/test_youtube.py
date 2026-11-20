@@ -226,6 +226,39 @@ except yt.YouTubeError as e: check('revoked/expired permission -> "sign in again
 try: yt.find_channel('Waddle Club'); check('unknown channel -> error naming the signed-in ones', False)
 except yt.YouTubeError as e: check('unknown channel -> error naming the signed-in ones', 'Moon Shift' in str(e), e)
 
+# ---------------------------------------------------------------- MCP: shadow_upload_preview / shadow_upload (tools/mcp_server.py)
+t = yt.load_tokens(); t['UC_moon'].update(refresh_token='RT1', expires=0); yt.save_tokens(t)
+sys.path.insert(0, os.path.join(ROOT, 'tools')); import time as _time
+import mcp_server as ms
+check('mcp: same youtube module as the test (fake Google applies)', ms.yt is yt)
+S['received'] = bytearray(); S['thumbs'] = []; S['meta'] = None
+pv = ms.upload_settings(full_mp4, scene=os.path.join(song, 'x.html'))['view']
+check('mcp preview: metadata.txt next to the scene, title, AI label, thumbnail, private, nothing sent',
+      pv['title'] == fm['title'] and pv['ai_label'] is True and pv['thumbnail'] == thumb2 and pv['privacy'] == 'private'
+      and pv['channel'] == 'Moon Shift' and pv['metadata'].endswith('metadata.txt') and S['meta'] is None and not S['received'], pv)
+check('mcp preview: notes say PUBLISH has no date', any('no date' in n for n in pv['notes']), pv['notes'])
+pv2 = ms.upload_settings(short_mp4, scene=os.path.join(song, 'x.html'), ai='no', thumbnail='none', publish='2030-01-02 05:00 UTC')['view']
+check('mcp preview: Short section, ai=no, thumbnail=none, publish text -> UTC + Private', pv2['title'] == sm['title'] and pv2['ai_label'] is False
+      and pv2['thumbnail'] is None and pv2['publish_at_utc'] == '2030-01-02T05:00:00Z' and pv2['privacy'] == 'private', pv2)
+for bad, why in ((dict(video=os.path.join(out, 'x.mov')), '.mp4'), (dict(video=full_mp4, publish='tomorrow'), 'no date'),
+                 (dict(video=full_mp4, ai='maybe'), "'auto'"), (dict(video=full_mp4, channel='Waddle Club'), 'not signed in'),
+                 (dict(video=os.path.join(out, 'gone.mp4')), 'not found'), (dict(video=full_mp4, meta=os.path.join(tmp, 'none.txt')), 'not found')):
+    try: ms.upload_settings(**bad); check(f'mcp preview refuses {why}', False)
+    except (ValueError, yt.YouTubeError) as e: check(f'mcp preview refuses {why}', why in str(e), e)
+s_ = ms.upload_settings(full_mp4, scene=os.path.join(song, 'x.html'), publish='2030-01-02 05:00 UTC')
+u = ms.Upload(s_['view'], s_['args']); ms.UPLOADS[u.id] = u; ms.UPLOAD_ORDER.append(u.id); u.thread.join(60)
+snap = ms.get_upload().snapshot()
+check('mcp upload: done, the whole file, the previewed body (title, AI, publishAt), thumbnail set, links',
+      snap['state'] == 'done' and snap['percent'] == 100 and bytes(S['received']) == data and S['meta']['snippet']['title'] == fm['title']
+      and S['meta']['status'].get('containsSyntheticMedia') is True and S['meta']['status'].get('publishAt') == '2030-01-02T05:00:00Z'
+      and snap['thumbnail'] == 'set' and snap['studio'].endswith('/VID123/edit') and snap['scheduled_utc'] == '2030-01-02T05:00:00Z', snap)
+S['received'] = bytearray(); u2 = ms.Upload(s_['view'], s_['args']); u2.cancel.set(); u2.thread.join(30)
+check('mcp upload cancel -> state cancelled, error says cancelled', u2.snapshot()['state'] == 'cancelled' and 'cancel' in u2.snapshot()['error'], u2.snapshot())
+import assistant as A
+check('assistant: preview/progress/cancel/channels pre-approved, shadow_upload only by "Allow once"',
+      {'mcp__shadow__shadow_upload_preview', 'mcp__shadow__shadow_youtube', 'mcp__shadow__shadow_upload_progress'} <= set(A.SAFE_TOOLS)
+      and 'mcp__shadow__shadow_upload' not in A.SAFE_TOOLS and 'mcp__shadow__shadow_upload' in A.ASK_TOOLS)
+
 srv.shutdown()
 
 # ---------------------------------------------------------------- the YouTube... dialog (upload faked)
@@ -273,5 +306,6 @@ try:
 except Exception as e:
     import traceback; traceback.print_exc(); check('dialog test ran', False, e)
 
+sys.modules['app'].close_log() if 'app' in sys.modules else None   # shadow.log in the temp folder is open: close it first
 import shutil; shutil.rmtree(tmp, ignore_errors=True)
 print('\nALL PASS' if not fails else f'\n{len(fails)} FAIL: {fails}'); sys.exit(1 if fails else 0)

@@ -127,7 +127,7 @@ def render(blend_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel
     ffmpeg = rc.find_ffmpeg()
     if not ffmpeg: raise RuntimeError('ffmpeg not found')
     cw, ch = _size(preset, vertical)
-    tmp = tempfile.mkdtemp(prefix='shadow_blend_'); frames_dir = os.path.join(tmp, 'frames'); os.makedirs(frames_dir)
+    tmp = tempfile.mkdtemp(prefix='shadow_blend_'); rc.mark_temp_owner(tmp); frames_dir = os.path.join(tmp, 'frames'); os.makedirs(frames_dir)
     part = rc._part_path(out_mp4); proc = None; bl = None
     job = dict(mode='render', out_dir=frames_dir, w=cw, h=ch, vertical=bool(vertical), quality=_quality(preset), engine=engine,
                device=device, capture=capture, audio_wav=os.path.join(tmp, 'scene_sound.wav') if sound == 'generated' else None,
@@ -227,7 +227,7 @@ def preview(blend_path, frames=None, out=None, size=640, engine='scene', device=
     sizes = [s for s in (('16:9', False), ('9:16', True)) if not only or s[0] == only]
     rows, problems, warns, infos = [], [], [], {}
     for name, vertical in sizes:
-        tmp = tempfile.mkdtemp(prefix='shadow_blendpv_')
+        tmp = tempfile.mkdtemp(prefix='shadow_blendpv_'); rc.mark_temp_owner(tmp)
         try:
             # first run: only to learn the frame range (cheap: max_frames 1, nothing rendered with mode preview + 0 frames)
             w = size if not vertical else round(size * 9 / 16); h = round(size * 9 / 16) if not vertical else size

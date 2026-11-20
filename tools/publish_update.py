@@ -11,7 +11,7 @@ except Exception: pass
 import updater
 
 TESTS = ['test_queue_logic', 'test_qc_parse', 'test_updater', 'test_theme', 'test_capture', 'test_make_words', 'test_narrate_build', 'test_audio_encode',
-         'test_qc_run', 'test_narrate_render', 'regression', 'test_queue_gui', 'test_queue_extras', 'test_assistant', 'test_youtube', 'test_scene_check', 'test_loudness']   # quick ones first (the CLAUDE.md list)
+         'test_qc_run', 'test_narrate_render', 'regression', 'test_queue_gui', 'test_queue_extras', 'test_assistant', 'test_youtube', 'test_scene_check', 'test_loudness', 'test_cleanup_browser', 'test_project']   # quick ones first (the CLAUDE.md list)
 VER_RE = re.compile(r'^VERSION = "([^"]+)"', re.M)
 
 
@@ -151,7 +151,7 @@ def build_and_publish(new, notes, t0):
                 f'**Install:** download `Shadow-{new}-Setup.exe` below and run it (no admin needed; if Windows SmartScreen warns, '
                 f'choose *More info* -> *Run anyway*). **Already installed?** Open Shadow and press **Update to v{new}**.\n\n'
                 f'All changes: [CHANGELOG.md](https://github.com/Reemon88IQ/shadow/blob/main/CHANGELOG.md)\n')
-    try: ok = run('release.bat < nul', shell=True)
+    try: ok = run(r'.\release.bat < nul', shell=True)   # .\ : cmd may not search the current folder (NoDefaultCurrentDirectoryInExePath)
     finally:
         try: os.remove(notes_file)
         except OSError: pass

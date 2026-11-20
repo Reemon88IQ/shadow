@@ -38,6 +38,35 @@ BLENDER_ENGINES = list(bc.ENGINES.values())   # GUI labels: Scene setting / Eeve
 SOUNDS = ['Generated (built into the scene)', 'None (silent)', 'External file...', 'Auto (file next to scene)']
 SONG_EXTS = ('.wav', '.mp3', '.m4a', '.flac', '.ogg', '.aac')   # Auto: <scene>.<ext> next to the .html, first one found wins
 OUTDATED = 'This scene is outdated and does not support 9:16'
+PROJECT_EXT = '.shadow'   # project file: the queue + its options (JSON)
+PROJECT_VERSION = 1
+
+def _rel(p, base):
+    """p relative to base when it is on the same drive (a project folder can be moved / copied), else absolute."""
+    try: return os.path.relpath(p, base)
+    except ValueError: return p
+
+def write_project(path, data):
+    """Save project_data() as JSON; file paths relative to the project's folder. Written via a temp file + rename."""
+    base = os.path.dirname(os.path.abspath(path)); rel = lambda p: _rel(p, base) if isinstance(p, str) and p else p
+    narr = {rel(f): {k: (rel(v) if k in ('wav', 'words') else v) for k, v in n.items()} for f, n in data['narration'].items()}
+    o = dict(data['options']); o['sound_file'] = rel(o.get('sound_file') or '')
+    out = dict(shadow_project=PROJECT_VERSION, shadow_version=rc.VERSION, files=[rel(f) for f in data['files']], narration=narr, options=o)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f: json.dump(out, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, path)
+
+def read_project(path):
+    """A .shadow file -> dict(files (absolute, in order), narration {file: settings}, options). Raises ValueError when it is
+    not a Shadow project."""
+    with open(path, encoding='utf-8-sig') as f: d = json.load(f)
+    if not isinstance(d, dict) or 'shadow_project' not in d or not isinstance(d.get('files'), list): raise ValueError('not a Shadow project file')
+    base = os.path.dirname(os.path.abspath(path))
+    ab = lambda p: os.path.normpath(os.path.join(base, p)) if isinstance(p, str) and p else p
+    narr = {ab(f): {k: (ab(v) if k in ('wav', 'words') else v) for k, v in (n or {}).items()} for f, n in (d.get('narration') or {}).items()}
+    o = dict(d.get('options') or {}); o['sound_file'] = ab(o.get('sound_file') or '') or ''
+    return dict(files=[ab(f) for f in d['files'] if isinstance(f, str)], narration=narr, options=o)
+
 SKIPPED_SCENE_CHECK = 'Skipped (scene check)'   # Render: the scene misses window.__ready / seek / DURATION / canvas#c and the user chose No
 FORMAT_AUTO = 'Auto (by file name)'   # per file: a name starting with "short_" -> 9:16, every other file -> 16:9
 FORMAT_CHOICES = list(rc.FORMATS) + [FORMAT_AUTO]
@@ -48,6 +77,12 @@ SHORT_PREFIX = 'short_'
 SHORT_SUFFIXES = tuple(sep + w for sep in ('-', '_', ' ') for w in ('short', 'shorts'))   # rain-short.html, rain_shorts.html ... -> 9:16 too
 
 log = logging.getLogger('shadow')
+def close_log():
+    """Close and drop the log file handlers (tests: so their temp folder with shadow.log can be deleted on Windows)."""
+    for h in list(log.handlers):
+        try: h.close()
+        except Exception: pass
+        log.removeHandler(h)
 def setup_log():
     if log.handlers: return
     try:
@@ -719,6 +754,7 @@ class App(Root):
         # the live queue: self.files (order) + self.state[path] = 'queued' | 'running' | 'finished' | 'skipped'.
         # The worker takes the next 'queued' file under self.lock, so files added/removed while rendering are honoured.
         self.state = {}; self.lock = threading.Lock()
+        self.project_path = None   # the .shadow file opened / saved last (Project > Save project)
         self.narr = {}   # path -> narration settings for that file (see narrate_for_render); set by the UI later
         self.out_mp4 = {}   # path -> the mp4s this session rendered (or found up to date) for that row: the YouTube dialog uploads them
         self.embedded = set()   # files whose HTML already carries narration (shown as [voice embedded], never narrated again)
@@ -832,6 +868,7 @@ class App(Root):
         # 'Check for updates'; becomes the accent 'Update to vX.Y' once a newer release is found
         self.update_btn = ttk.Button(top, text='Check for updates', command=self.on_update_btn); self.update_btn.pack(side='right', padx=(0, 8))
         self.ai_btn = ttk.Button(top, text='Assistant', command=self.toggle_assistant); self.ai_btn.pack(side='right', padx=(0, 8))
+        self.proj_btn = ttk.Button(top, text='Project', command=self.project_menu); self.proj_btn.pack(side='right', padx=(0, 8))
         self._top = top
         self._theme_text()
 
@@ -842,6 +879,7 @@ class App(Root):
             dot = ttk.Label(env, text='●'); dot.pack(side='left'); txt = ttk.Label(env, text=k); txt.pack(side='left', padx=(3, 14))
             self.env_lbls[k] = (dot, txt)
         ttk.Button(env, text='Install missing', command=self.install_missing).pack(side='right')
+        self.selftest_btn = ttk.Button(env, text='Self-test', command=self.run_selftest); self.selftest_btn.pack(side='right')
         ttk.Button(env, text='Re-check', command=self.check).pack(side='right', padx=6)
 
         # drop area + table
@@ -988,6 +1026,24 @@ class App(Root):
         for k, ok in (('Chrome', e['chrome']), ('ffmpeg', e['ffmpeg']), ('playwright', e['playwright']), ('Blender', bool(self.blender))):
             dot, txt = self.env_lbls[k]
             dot.config(foreground='#3fb950' if ok else '#f85149' if k != 'Blender' else '#888'); txt.config(text=k if ok else f'{k} (missing)' if k != 'Blender' else 'Blender (not found, only for .blend)')
+        if e['chrome'] and e.get('browser') != 'Chrome': self.env_lbls['Chrome'][1].config(text=f"{e['browser']} (Chrome not found)")
+    def run_selftest(self, wait=False, **kw):
+        """Self-test button: selftest() in a thread, the result in a message box (tests: wait=True runs here, returns it)."""
+        if self.worker is not None and self.worker.is_alive():
+            messagebox.showinfo('Self-test', 'A render is running. Run the self-test when the queue is done.'); return None
+        self.selftest_btn.config(state='disabled'); self.status.config(text='Self-test: rendering a 2-second test scene...')
+        out = {}
+        def work():
+            out['res'] = selftest(**kw)
+            self.q.put(('selftest', out['res']))
+        if wait: work(); self.on_selftest(out['res']); return out['res']
+        threading.Thread(target=work, daemon=True).start()
+    def on_selftest(self, res):
+        if not self.selftest_btn.winfo_exists(): return
+        self.selftest_btn.config(state='normal')
+        self.status.config(text=('Self-test passed' if res['ok'] else 'Self-test FAILED') + f" ({res.get('seconds', 0)} s, {res.get('browser') or 'no browser'})")
+        if getattr(self, 'selftest_box_off', False): return   # tests
+        (messagebox.showinfo if res['ok'] else messagebox.showwarning)('Self-test', selftest_text(res))
     def install_missing(self):
         cmds = []
         frozen = getattr(sys, 'frozen', False)  # in Shadow.exe the python packages are bundled; sys.executable is the exe
@@ -1004,7 +1060,74 @@ class App(Root):
     def on_drop(self, ev):
         for f in self.tk.splitlist(ev.data):
             if os.path.isdir(f): self.add_folder(f)   # a dropped folder adds its scenes, like "Add folder..."
+            elif f.lower().endswith(PROJECT_EXT): self.open_project(f)
             else: self._add(f)
+
+    # ------------------------------------------------------------------ project files (.shadow)
+    def project_menu(self):
+        m = tk.Menu(self, tearoff=0)
+        m.add_command(label='Open project...', command=self.open_project)
+        m.add_command(label='Save project', command=lambda: self.save_project(self.project_path))
+        m.add_command(label='Save project as...', command=self.save_project)
+        try: m.tk_popup(self.proj_btn.winfo_rootx(), self.proj_btn.winfo_rooty() + self.proj_btn.winfo_height())
+        finally: m.grab_release()
+    def project_data(self):
+        """The queue (scenes in order + each row's narration) and the render options, as saved in a .shadow file."""
+        return dict(files=list(self.files), narration={f: dict(v) for f, v in self.narr.items() if f in self.files},
+                    options=dict(quality=self.preset.get(), format=self.fmt.get(), sound=self.snd.get(), sound_file=self.snd_file.get(),
+                                 capture=self.capture.get(), blender=self.bl_engine.get(), folder=self.folder_choice.get(),
+                                 save_to=self.out_dir.get(), skip_done=bool(self.skip_done.get())))
+    def save_project(self, path=None):
+        """Save project (as): the queue and its options in a .shadow file. Returns the path, or None (cancelled / failed)."""
+        if not path:
+            path = filedialog.asksaveasfilename(defaultextension=PROJECT_EXT, filetypes=[('Shadow project', '*' + PROJECT_EXT)],
+                                                initialdir=os.path.dirname(self.files[0]) if self.files else None, initialfile='project' + PROJECT_EXT)
+            if not path: return None
+        try: write_project(path, self.project_data())
+        except OSError as e: messagebox.showerror('Project', f'Could not save {path}:\n{e}'); return None
+        self.project_path = path; self.title(f'Shadow - {os.path.splitext(os.path.basename(path))[0]}')
+        self.status.config(text=f'Project saved: {path}'); log.info('project saved %s (%d scenes)', path, len(self.files))
+        return path
+    def open_project(self, path=None, ask=messagebox.askyesnocancel):
+        """Open project: scenes (in order) + their narration + the options. With scenes already in the list it asks:
+        Yes = replace the list, No = add to it, Cancel. Missing files are listed, the rest is opened. Returns the scenes added."""
+        if self.worker is not None and self.worker.is_alive():
+            messagebox.showinfo('Project', 'A render is running. Open the project when the queue is done.'); return []
+        if not path:
+            path = filedialog.askopenfilename(filetypes=[('Shadow project', '*' + PROJECT_EXT)])
+            if not path: return []
+        try: data = read_project(path)
+        except (OSError, ValueError) as e: messagebox.showerror('Project', f'Could not open {path}:\n{e}'); return []
+        if self.files:
+            a = ask('Project', f'Replace the {len(self.files)} scene(s) in the list with the project?\n\nYes = replace   No = add to the list   Cancel = do nothing')
+            if a is None: return []
+            if a: self.clear()
+        o = data['options']
+        for var, key, ok in ((self.preset, 'quality', rc.PRESETS), (self.fmt, 'format', FORMAT_CHOICES), (self.snd, 'sound', SOUNDS),
+                             (self.capture, 'capture', CAPTURES), (self.bl_engine, 'blender', BLENDER_ENGINES)):
+            if o.get(key) in ok: var.set(o[key])
+        if o.get('sound_file') is not None: self.snd_file.set(o['sound_file'])
+        if o.get('save_to'): self.out_dir.set(o['save_to'])
+        if 'skip_done' in o: self.skip_done.set(bool(o['skip_done']))
+        fc = o.get('folder')
+        if fc and fc not in self.folder_values() and safe_rel_folder(fc): self.folders.append(safe_rel_folder(fc)); self.folder_box.config(values=self.folder_values())
+        if fc in self.folder_values(): self.folder_choice.set(fc)
+        added, missing, narr_err = [], [f for f in data['files'] if not os.path.isfile(f)], []
+        for f in data['files']:
+            if f in missing or os.path.normpath(f) in self.files: continue
+            self._add(f); added.append(os.path.normpath(f))
+            n = data['narration'].get(f)
+            if n and os.path.normpath(f) not in self.embedded:
+                err = self.set_narration(f, n.get('wav', ''), n.get('words', ''), style=n.get('style', 'pop'), yh=n.get('yh', 0.88),
+                                         gain=n.get('gain', 1.0), captions=n.get('captions', True))
+                if err: narr_err.append(f'{os.path.basename(f)}: {err}')
+        self.refresh_audio(); self.project_path = path; self.title(f'Shadow - {os.path.splitext(os.path.basename(path))[0]}')
+        self.status.config(text=f'Project opened: {len(added)} scene(s)' + (f', {len(missing)} missing' if missing else ''))
+        log.info('project opened %s: %d added, %d missing', path, len(added), len(missing))
+        if missing or narr_err:
+            messagebox.showwarning('Project', ('Not found (not added):\n' + '\n'.join(missing) if missing else '')
+                                   + ('\n\n' if missing and narr_err else '') + ('Narration not attached:\n' + '\n'.join(narr_err) if narr_err else ''))
+        return added
     def add_folder(self, d=None, ask=None):
         """Add every .html / .blend scene in a folder (sorted; hidden .shadow_narr_* temp scenes skipped). When its subfolders
         hold scenes too, ask whether to add those as well. Returns the scenes added (tests)."""
@@ -1385,6 +1508,8 @@ class App(Root):
                     self.show_update(m[1], m[2])
                 elif m[0] == 'update_none':
                     self.update_none(m[1], m[2])
+                elif m[0] == 'selftest':
+                    self.on_selftest(m[1])
                 elif m[0] == 'update_p':
                     _, got, total = m
                     self.status.config(text=f'Downloading update: {got / 1e6:.1f}' + (f' of {total / 1e6:.1f} MB' if total else ' MB'))
@@ -1839,7 +1964,8 @@ class CheckWindow:
             try:
                 import base64, io
                 from PIL import Image
-                im = Image.open(res['sheet']); k = app.winfo_fpixels('1i') / 96
+                with Image.open(res['sheet']) as f0: im = f0.copy()   # closed at once: an open file would stay locked on Windows
+                k = app.winfo_fpixels('1i') / 96
                 im.thumbnail((round(1100 * k), round(560 * k)))
                 buf = io.BytesIO(); im.save(buf, 'PNG')   # Tk reads PNG itself: no PIL.ImageTk needed
                 self.photo = tk.PhotoImage(master=t, data=base64.b64encode(buf.getvalue()).decode('ascii'), format='png')
@@ -1874,6 +2000,90 @@ def cli_check(argv):
     lines.append('OK' if res['ok'] else 'PROBLEMS:\n  ' + '\n  '.join(res['problems']))
     log.info('cli check %s: %s', a.check, ' | '.join(lines))
     try: print('\n'.join(lines))   # a --noconsole exe has no stdout: the log has it too
+    except Exception: pass
+    return 0 if res['ok'] else 1
+
+SELFTEST_SCENE = """<!doctype html><meta charset=utf-8><title>Shadow self-test</title><body style="margin:0;background:#000">
+<canvas id=c></canvas><script>
+const q = new URLSearchParams(location.search), get = k => q.get(k), W = +get('w') || 1280, H = +get('h') || Math.round(W * 9 / 16);
+const c = document.getElementById('c'); c.width = W; c.height = H; const g = c.getContext('2d');
+window.DURATION = 2;
+window.seek = (t) => { g.fillStyle = '#0b1d33'; g.fillRect(0, 0, W, H); const x = W * (0.1 + 0.8 * t / 2);
+  g.fillStyle = '#f5a623'; g.beginPath(); g.arc(x, H / 2, H / 6, 0, 7); g.fill();
+  g.fillStyle = '#fff'; g.font = `${Math.round(H / 14)}px sans-serif`; g.textAlign = 'center'; g.fillText('Shadow self-test  t=' + t.toFixed(2), W / 2, H * 0.88); };
+window.seek(0); window.__ready = true;
+</script>"""
+
+def selftest(progress=lambda msg: None, channel='auto', extra_args=(), keep=False):
+    """Self-test: renders a built-in 2-second scene with a test tone through the real pipeline (browser -> frames -> ffmpeg ->
+    audio loudness -> QC) in a temp folder. -> dict(ok, steps=[(name, ok, detail)], seconds, browser, mp4 (only with keep)).
+    Never raises; the first failing step says what to fix."""
+    t0 = time.time(); steps = []; tmp = tempfile_dir('shadow_selftest_'); res = dict(ok=False, steps=steps, browser=None)
+    def step(name, ok, detail=''):
+        steps.append((name, bool(ok), detail)); progress(f'{name}: {"OK" if ok else "FAILED"}'); return ok
+    try:
+        env = rc.check_env()
+        ch = rc.resolve_channel(channel) if channel == 'auto' else channel; res['browser'] = rc.browser_name(ch) if ch else 'bundled Chromium'
+        if not step('Browser', env['chrome'] or channel != 'auto', res['browser'] if env['chrome'] or channel != 'auto'
+                    else 'neither Chrome nor Edge found: winget install -e --id Google.Chrome'): return res
+        if not step('ffmpeg', env['ffmpeg'], rc.find_ffmpeg() or 'not on PATH: winget install -e --id Gyan.FFmpeg, then sign out and in'): return res
+        if not step('playwright', env['playwright'], 'ok' if env['playwright'] else 'pip install playwright'): return res
+        scene = os.path.join(tmp, 'selftest.html')
+        with open(scene, 'w', encoding='utf-8') as f: f.write(SELFTEST_SCENE)
+        tone = os.path.join(tmp, 'selftest.wav')
+        r = subprocess.run([rc.find_ffmpeg(), '-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2:sample_rate=48000',
+                            '-ac', '2', tone], capture_output=True, creationflags=NOWIN)
+        if not step('Test tone (ffmpeg)', r.returncode == 0 and os.path.isfile(tone), rc.ffmpeg_message(r.stderr.decode('utf-8', 'replace').splitlines(), r.returncode) if r.returncode else 'ok'): return res
+        mp4 = os.path.join(tmp, 'selftest.mp4'); info = {}; preset = rc.PRESETS['Draft (fast, 720p)']; t1 = time.time()
+        try:
+            rc.render(scene, mp4, preset, sound='file', audio_file=tone, capture='jpeg', info=info, channel=channel, extra_args=extra_args)
+            step('Render (browser + frames + encode)', True, f'{time.time() - t1:.1f} s with {info.get("browser")}')
+        except Exception as e:
+            step('Render (browser + frames + encode)', False, (str(e).strip().splitlines() or [type(e).__name__])[0]); return res
+        pr = probe(mp4)
+        if not step('Output file', pr and (pr[0], pr[1]) == (1280, 720) and pr[3], f'{pr[0]}x{pr[1]}, {pr[2]:.1f} s, audio {"yes" if pr and pr[3] else "no"}' if pr else 'ffprobe could not read it'): return res
+        qres, _ = quality_check(mp4, preset, False, info, 'file')
+        step('Quality check', qres and qres['status'] == qc.OK, (qres or {}).get('status', 'not run') + (': ' + '; '.join(qres['reasons']) if qres and qres.get('reasons') else ''))
+        res['ok'] = all(s[1] for s in steps)
+        if keep: res['mp4'] = mp4
+        return res
+    except Exception as e:
+        log.exception('self-test'); step('Self-test', False, str(e)); return res
+    finally:
+        res['seconds'] = round(time.time() - t0, 1)
+        log.info('self-test: %s in %s s, %s', 'OK' if res['ok'] else 'FAILED', res['seconds'], '; '.join(f'{n}={"ok" if o else d}' for n, o, d in steps))
+        if not keep: shutil.rmtree(tmp, ignore_errors=True)
+
+def tempfile_dir(prefix):
+    import tempfile
+    return tempfile.mkdtemp(prefix=prefix)
+
+def selftest_text(res):
+    lines = [('OK   ' if ok else 'FAIL ') + f'{n}: {d}' for n, ok, d in res['steps']]
+    return ('Self-test passed' if res['ok'] else 'Self-test FAILED') + f' ({res.get("seconds", 0)} s)\n\n' + '\n'.join(lines)
+
+def clean_old_updates(dest=None):
+    """Delete update setups in %TEMP%\\Shadow-update that are this version or older (installed already). -> bytes freed."""
+    dest = dest or os.path.join(os.environ.get('TEMP') or os.path.expanduser('~'), 'Shadow-update'); freed = 0
+    for p in glob.glob(os.path.join(dest, 'Shadow-*-Setup.exe')):
+        m = re.match(r'Shadow-([\d.]+)-Setup\.exe$', os.path.basename(p), re.I)
+        try:
+            if m and updater.parse_version(m.group(1)) <= updater.parse_version(rc.VERSION):
+                n = os.path.getsize(p); os.remove(p); freed += n
+        except (OSError, ValueError): pass
+    return freed
+
+def startup_cleanup():
+    """At start (in a thread): leftover render temp folders of crashed renders + installed update setups."""
+    try:
+        n, freed = rc.clean_stale_temp(); freed += clean_old_updates()
+        if n or freed: log.info('cleanup: %d stale temp folder(s), %.1f MB freed', n, freed / 1048576)
+    except Exception: log.exception('startup cleanup')
+
+def cli_selftest(argv):
+    """Shadow.exe --selftest: render the built-in test scene with a tone and check it; exit 0 = OK."""
+    res = selftest()
+    try: print(selftest_text(res))
     except Exception: pass
     return 0 if res['ok'] else 1
 
@@ -1914,8 +2124,14 @@ def main():
         sys.exit(cli(sys.argv[1:]))
     if '--check' in sys.argv:
         sys.exit(cli_check(sys.argv[1:]))
+    if '--selftest' in sys.argv:
+        sys.exit(cli_selftest(sys.argv[1:]))
+    threading.Thread(target=startup_cleanup, daemon=True, name='startup-cleanup').start()
     try:
-        App().mainloop()
+        a = App()
+        proj = next((x for x in sys.argv[1:] if x.lower().endswith(PROJECT_EXT) and os.path.isfile(x)), None)
+        if proj: a.after(300, lambda: a.open_project(proj))   # Shadow.exe my.shadow (or a double-clicked .shadow file)
+        a.mainloop()
     except Exception:
         log.critical('crash\n%s', traceback.format_exc()); raise
 

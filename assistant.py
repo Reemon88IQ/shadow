@@ -14,7 +14,7 @@ Permissions (verified with Claude Code 2.1.327, see docs/ASSISTANT.md):
   --tools Read,Glob,Grep            the only built-in tools: reading files. No Bash/PowerShell, no Edit/Write, no web.
   --strict-mcp-config --mcp-config  only Shadow's own MCP server, none of the owner's other servers or plugins' servers
   --allowedTools <SAFE_TOOLS>       the Shadow tools that create new files only (render never overwrites) or only read
-  shadow_cancel (stops a render) is NOT pre-approved: it is denied, the panel shows it and offers "Allow once", which
+  shadow_cancel (stops a render) and shadow_upload (publishes to YouTube) are NOT pre-approved: it is denied, the panel shows it and offers "Allow once", which
   re-runs that one turn with it allowed.
 Reading works in the session folder and the Save-to folder (--add-dir); a Read elsewhere is denied and can be allowed once.
 """
@@ -23,8 +23,9 @@ import json, os, shutil, subprocess, sys, threading, time
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 NL = '\n'
 SERVER = 'shadow'
-SAFE_TOOLS = [f'mcp__{SERVER}__shadow_{t}' for t in ('info', 'plan', 'render', 'progress', 'jobs', 'check_frames', 'qc', 'outputs')]
-ASK_TOOLS = [f'mcp__{SERVER}__shadow_cancel']        # denied unless the owner clicks "Allow once"
+SAFE_TOOLS = [f'mcp__{SERVER}__shadow_{t}' for t in ('info', 'plan', 'render', 'progress', 'jobs', 'check_frames', 'qc', 'outputs',
+                                                     'youtube', 'upload_preview', 'upload_progress', 'upload_cancel')]
+ASK_TOOLS = [f'mcp__{SERVER}__shadow_{t}' for t in ('cancel', 'upload')]   # denied unless the owner clicks "Allow once"
 READ_TOOLS = ['Read', 'Glob', 'Grep']                # built-in tools that exist at all; reading outside the folders asks
 ALLOWABLE = set(ASK_TOOLS) | set(READ_TOOLS)         # what "Allow once" may ever grant (nothing that runs code or edits)
 # keys that would make Claude Code bill per use instead of using the subscription: never passed to it
@@ -39,7 +40,8 @@ Typical flow: shadow_check_frames(scene) -> look at the sheet -> shadow_plan -> 
 until the job ends -> shadow_qc / shadow_outputs. A render you start lives only while this chat runs: after shadow_render keep
 calling shadow_progress(wait_seconds=55) until the job has finished, then report the result (outputs, QC, warnings) briefly.
 Files are never overwritten (a new _2 file is made). shadow_cancel stops a render: ask the owner first; if it is blocked the
-app shows him an "Allow once" button. Each message starts with a [Shadow app] block describing the app's queue and settings;
+app shows him an "Allow once" button. YouTube: shadow_upload_preview(video) shows what would be uploaded - show it to the
+owner; shadow_upload sends it and is blocked until he clicks "Allow once", then follow it with shadow_upload_progress. Each message starts with a [Shadow app] block describing the app's queue and settings;
 "this folder" / "these scenes" usually means those. Reply in the owner's language (Arabic, Iraqi dialect is fine), short
 and direct, plain text (no tables)."""
 

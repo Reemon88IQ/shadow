@@ -261,6 +261,7 @@ for t in (a1, a2, a3, a4, a5, a6, a7, a8):
     try: t()
     except Exception:
         traceback.print_exc(); check(t.__name__ + ' crashed', False)
+sys.modules['app'].close_log() if 'app' in sys.modules else None   # shadow.log in the temp folder is open: close it first
 shutil.rmtree(TMP, ignore_errors=True)
 print(f'\n{sum(res)}/{len(res)} PASS')
 sys.exit(0 if all(res) else 1)

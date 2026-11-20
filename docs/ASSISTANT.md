@@ -45,7 +45,8 @@ Measured with Claude Code 2.1.327. The command line is in `assistant.build_args(
 | `--permission-mode dontAsk` | Anything not pre-approved is **denied** at once. Nothing waits for an answer nobody can give. |
 | `--tools Read,Glob,Grep` | The only built-in tools are for reading. There is **no** Bash / PowerShell, no Edit / Write, and no web access. |
 | `--strict-mcp-config --mcp-config <file>` | Only Shadow's MCP server is loaded. Your other MCP servers and plugin servers are not. |
-| `--allowedTools shadow_info, shadow_plan, shadow_render, shadow_progress, shadow_jobs, shadow_check_frames, shadow_qc, shadow_outputs` | These tools run without asking. They only read, or they make new files: a render never overwrites (`_2`, `_3`...). |
+| `--allowedTools shadow_info, shadow_plan, shadow_render, shadow_progress, shadow_jobs, shadow_check_frames, shadow_qc, shadow_outputs, shadow_youtube, shadow_upload_preview, shadow_upload_progress, shadow_upload_cancel` | These tools run without asking. They only read, or they make new files: a render never overwrites (`_2`, `_3`...). The upload preview sends nothing. |
+| (not allowed) `shadow_upload` | Publishes to your YouTube channel, so it is **asked** every time, the same way as `shadow_cancel` below. |
 | (not allowed) `shadow_cancel` | Stops a render, so it is **asked**. When Claude tries it, the panel shows *Claude wants to use shadow_cancel(...). Allow it once?* **Allow once** re-runs that one turn with the tool allowed. Afterwards it is denied again. **No** keeps it blocked. |
 | `--add-dir <Save to>` | Claude may read your output folder as well (QC reports, logs). |
 

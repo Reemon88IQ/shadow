@@ -76,6 +76,11 @@ Optional fields:
 Without a metadata.txt the title is made from the file name.
 YouTube's limits are applied: title 100 characters, description 5000 bytes, tags 500 characters.
 
+## From Claude (MCP)
+
+Claude can upload through Shadow's MCP server ([MCP.md](MCP.md)): `shadow_upload_preview` shows what would be sent,
+and `shadow_upload` uploads it after you say yes. In the Assistant panel the upload always asks for **Allow once**.
+
 ## Command line
 
 ```

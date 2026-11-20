@@ -9,7 +9,8 @@ Run:   python tools/mcp_server.py            (an MCP client starts it; it talks 
                                                          that take a URL. Localhost only, off unless started like this.
 Test:  python tests/test_mcp_server.py
 Tools: shadow_info, shadow_plan, shadow_render, shadow_progress, shadow_cancel, shadow_jobs, shadow_check_frames,
-       shadow_qc, shadow_outputs. Renders run one at a time in a background thread (jobs queue up); shadow_render
+       shadow_qc, shadow_outputs; YouTube: shadow_youtube, shadow_upload_preview, shadow_upload, shadow_upload_progress,
+       shadow_upload_cancel (youtube.py; preview first, upload after the owner's yes). Renders run one at a time in a background thread (jobs queue up); shadow_render
        returns at once with a job id, shadow_progress(wait_seconds=...) follows it.
 Logs go to ~/shadow.log (the same log as the GUI). Nothing is ever printed to stdout (that is the MCP channel)."""
 import asyncio, glob, json, os, subprocess, sys, threading, time, uuid
@@ -251,6 +252,74 @@ class Runner:
         while time.time() < end and job.state in ('queued', 'running'): time.sleep(0.25)
 
 
+# ---------------------------------------------------------------- YouTube uploads (youtube.py; one at a time, background thread)
+import youtube as yt   # noqa: E402
+
+def upload_settings(video, channel='', privacy='private', ai='auto', thumbnail='auto', publish='auto', meta='', scene=''):
+    """The MCP choices -> youtube.prepare() arguments, then prepare(). -> dict(view for the client, args for upload_video).
+    ai auto|yes|no; thumbnail auto|none|<path>; publish auto (PUBLISH: in metadata.txt) | none | a date+time text;
+    meta: a metadata.txt path (default: next to the video, else next to `scene`). Raises ValueError / yt.YouTubeError."""
+    video = os.path.abspath(os.path.expanduser(video or ''))
+    if not video.lower().endswith('.mp4'): raise ValueError(f'video must be an .mp4 file, got {video!r}')
+    if privacy not in yt.PRIVACY: raise ValueError(f'privacy must be one of {", ".join(yt.PRIVACY)}')
+    ai = (ai or 'auto').lower(); thumbnail = thumbnail or 'auto'; publish = (publish or 'auto').strip()
+    if ai not in ('auto', 'yes', 'no'): raise ValueError("ai must be 'auto', 'yes' or 'no'")
+    m = mp = None
+    if meta:
+        mp = os.path.abspath(os.path.expanduser(meta))
+        if not os.path.isfile(mp): raise ValueError(f'metadata file not found: {mp}')
+        with open(mp, encoding='utf-8-sig') as f: d = yt.parse_metadata(f.read())
+        m = d.get('short' if video.lower().endswith('_shorts.mp4') else 'full') or d.get('full')
+    ov = dict(ai={'yes': True, 'no': False}.get(ai))
+    schedule = publish.lower() != 'none'
+    if publish.lower() not in ('auto', 'none'):
+        ov['publish_at'] = yt.parse_publish(publish)
+        if not ov['publish_at']: raise ValueError(f'publish: no date and time in {publish!r} (e.g. "2026-11-25 05:00 Sydney")')
+    thumb = False if thumbnail.lower() == 'none' else True if thumbnail.lower() == 'auto' else os.path.abspath(os.path.expanduser(thumbnail))
+    cands = [os.path.dirname(os.path.abspath(scene))] if scene else []
+    if m is None and not meta: m, mp = yt.metadata_for(video, cands)
+    ch, body, img, notes = yt.prepare(video, channel or None, m if m is not None else {}, privacy, (), ov, mp, thumb, schedule)
+    s, st = body['snippet'], body['status']
+    view = dict(video=video, size_mb=round(os.path.getsize(video) / 1048576, 1), channel=ch['title'], metadata=mp, title=s['title'],
+                description=s['description'][:300] + ('...' if len(s['description']) > 300 else ''), tags=s['tags'], category=s['categoryId'],
+                privacy=st['privacyStatus'], made_for_kids=st['selfDeclaredMadeForKids'], ai_label=st.get('containsSyntheticMedia'),
+                publish_at_utc=st.get('publishAt'), thumbnail=img, notes=notes)
+    args = dict(mp4=video, channel=ch['id'], meta=m if m is not None else {}, privacy=privacy, overrides=ov, meta_path=mp,
+                thumbnail=img or False, schedule=schedule)
+    return dict(view=view, args=args)
+
+class Upload:
+    def __init__(self, view, args):
+        self.id = uuid.uuid4().hex[:8]; self.view = view; self.args = args; self.state = 'running'
+        self.done = 0; self.total = os.path.getsize(args['mp4']); self.result = None; self.error = None
+        self.cancel = threading.Event(); self.started = time.time(); self.ended = None
+        self.thread = threading.Thread(target=self._run, daemon=True, name=f'shadow-upload-{self.id}'); self.thread.start()
+
+    def _run(self):
+        def prog(d, t): self.done, self.total = d, t
+        try:
+            self.result = yt.upload_video(progress=prog, cancel=self.cancel, **self.args)
+            self.state = 'done'; log.info('mcp upload %s -> %s %s', self.args['mp4'], self.result.get('channel'), self.result.get('url'))
+        except Exception as e:
+            self.state = 'cancelled' if self.cancel.is_set() else 'error'; self.error = str(e)
+            log.warning('mcp upload %s: %s', self.args['mp4'], e)
+        self.ended = time.time()
+
+    def snapshot(self):
+        out = dict(upload_id=self.id, state=self.state, percent=round(self.done * 100 / max(self.total, 1)), video=self.view['video'],
+                   channel=self.view['channel'], title=self.view['title'], seconds=round((self.ended or time.time()) - self.started))
+        if self.result:
+            r = self.result
+            out.update(url=r['url'], studio=r['studio'], privacy=r.get('privacy'), scheduled_utc=r.get('publish_at'), thumbnail=r.get('thumb'))
+        if self.error: out['error'] = self.error
+        return out
+
+UPLOADS = {}; UPLOAD_ORDER = []
+def get_upload(upload_id=''):
+    if upload_id: return UPLOADS.get(upload_id)
+    return UPLOADS[UPLOAD_ORDER[-1]] if UPLOAD_ORDER else None
+
+
 RUNNER = None
 def runner():
     global RUNNER
@@ -334,7 +403,9 @@ def build_server():
         'Shadow renders self-contained three.js HTML scenes and Blender .blend scenes to MP4 (1080p 30 fps with sound) for the owner\'s YouTube channels, '
         'with the same code as the Shadow app. Typical flow: shadow_check_frames(scene) -> look at the sheet -> shadow_plan -> '
         'shadow_render -> shadow_progress(wait_seconds=50) until finished -> shadow_qc / shadow_outputs. '
-        'Output: <out_dir>/<scene name>/<scene>.mp4 (9:16: <scene>_shorts.mp4) + .qc.txt; files are never overwritten.'))
+        'Output: <out_dir>/<scene name>/<scene>.mp4 (9:16: <scene>_shorts.mp4) + .qc.txt; files are never overwritten. '
+        'YouTube: shadow_upload_preview(video) -> show it to the owner -> only after his yes shadow_upload(same arguments) -> '
+        'shadow_upload_progress(wait_seconds=50). Uploads are Private by default.'))
 
     def plan_view(plan):
         return dict(out_dir=plan['out_dir'], quality=plan['preset_name'], format=plan['format'], sound=plan['sound'],
@@ -420,6 +491,61 @@ def build_server():
         job = runner().cancel(job_id or None, current_only)
         if not job: return dict(error='no such job')
         return dict(job_id=job.id, cancelled='current scene' if current_only else 'whole job', state=job.state)
+
+    @mcp.tool()
+    def shadow_youtube() -> dict:
+        """YouTube upload setup: the signed-in channels (title, id) and whether the OAuth client file is there.
+        Signing in a channel needs the owner in his browser: Shadow window -> YouTube... -> Sign in... (or python youtube.py signin)."""
+        try: yt.load_client(); client = None
+        except yt.YouTubeError as e: client = str(e)
+        return dict(channels=yt.channels(), client_ok=client is None, client_problem=client,
+                    note='Until the Google project passes YouTube\'s API audit, every API upload stays Private (also after a scheduled time).')
+
+    @mcp.tool()
+    def shadow_upload_preview(video: str, channel: str = '', privacy: str = 'private', ai: str = 'auto', thumbnail: str = 'auto',
+                              publish: str = 'auto', meta: str = '', scene: str = '') -> dict:
+        """What shadow_upload WOULD send to YouTube for this mp4, without sending anything: channel, title, description,
+        tags, privacy, Made for Kids, AI label, publish time (UTC), thumbnail and notes (missing metadata, past time...).
+        Always call this first, show it to the owner and upload only after his yes (same arguments to shadow_upload).
+        Metadata: metadata.txt next to the video (or `meta`, or next to `scene`): TITLE, DESCRIPTION, TAGS, AUDIENCE, AI,
+        THUMBNAIL, PUBLISH; the '=== SHORT ===' section for *_shorts.mp4. channel: title or id of a signed-in channel
+        (shadow_youtube), optional when only one is signed in. privacy private|unlisted|public (default private).
+        ai auto|yes|no (auto = AI: line). thumbnail auto (THUMBNAIL: or <video>_thumb.jpg) | none | an image path.
+        publish auto (PUBLISH: line) | none | a date and time like "2026-11-25 05:00 Sydney" (scheduled = Private until then)."""
+        try: s = upload_settings(video, channel, privacy, ai, thumbnail, publish, meta, scene)
+        except (ValueError, yt.YouTubeError) as e: return dict(error=str(e))
+        return dict(preview=s['view'], uploaded=False)
+
+    @mcp.tool()
+    def shadow_upload(video: str, channel: str = '', privacy: str = 'private', ai: str = 'auto', thumbnail: str = 'auto',
+                      publish: str = 'auto', meta: str = '', scene: str = '') -> dict:
+        """Upload a finished mp4 to the owner's YouTube channel - ONLY after he approved the shadow_upload_preview of the
+        same arguments. Same code as the app's YouTube... button. Starts in the background and returns an upload_id;
+        follow it with shadow_upload_progress(wait_seconds=50). Arguments: see shadow_upload_preview."""
+        try: s = upload_settings(video, channel, privacy, ai, thumbnail, publish, meta, scene)
+        except (ValueError, yt.YouTubeError) as e: return dict(error=str(e))
+        if any(u.state == 'running' for u in UPLOADS.values()): return dict(error='another upload is running; wait for it (shadow_upload_progress)')
+        u = Upload(s['view'], s['args']); UPLOADS[u.id] = u; UPLOAD_ORDER.append(u.id)
+        log.info('mcp upload %s started: %s -> %s', u.id, s['view']['video'], s['view']['channel'])
+        return dict(upload_id=u.id, started=True, preview=s['view'])
+
+    @mcp.tool()
+    async def shadow_upload_progress(upload_id: str = '', wait_seconds: float = 0) -> dict:
+        """Progress of a YouTube upload (default: the latest): state running|done|error|cancelled, percent, and when done the
+        video link, the YouTube Studio link, privacy, scheduled time (UTC) and thumbnail ('set' / 'error: ...').
+        wait_seconds (max 55) blocks until it ends or the time is up."""
+        u = get_upload(upload_id)
+        if not u: return dict(error=f'no such upload: {upload_id}' if upload_id else 'no upload yet')
+        end = time.time() + max(0.0, min(float(wait_seconds or 0), 55.0))
+        while time.time() < end and u.state == 'running': await asyncio.sleep(0.25)
+        return u.snapshot()
+
+    @mcp.tool()
+    def shadow_upload_cancel(upload_id: str = '') -> dict:
+        """Stop a running YouTube upload (default: the latest) after the current 8 MB chunk. Nothing is published."""
+        u = get_upload(upload_id)
+        if not u: return dict(error='no such upload')
+        u.cancel.set(); return dict(upload_id=u.id, cancelling=u.state == 'running', state=u.state)
 
     @mcp.tool()
     def shadow_jobs() -> list[dict]:
@@ -515,6 +641,7 @@ def main(argv=None):
     if os.environ.get('SHADOW_LOG'): app.LOG = os.environ['SHADOW_LOG']   # tests: keep the real ~/shadow.log untouched
     app.setup_log(); log.propagate = False   # ~/shadow.log only; MCPServer's console handler on stderr would repeat every line
     log.info('mcp server start (Shadow v%s, pid %d)%s', rc.VERSION, os.getpid(), f' - added env {sorted(added)}' if added else '')
+    threading.Thread(target=app.startup_cleanup, daemon=True).start()   # leftovers of crashed renders, installed update setups
     runner()
     if args.http:
         log.info('mcp server: HTTP mode on http://%s:%d/mcp (localhost only)', HTTP_HOST, args.port)

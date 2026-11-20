@@ -114,6 +114,11 @@ stays open, so jobs survive a client restart.
 | `shadow_check_frames(scene, only, times, show_sheet)` | `tools/check_frames.py`: contact sheet (returned as an image), page errors, seek(t) purity |
 | `shadow_qc(path, rerun, quality)` | read `.qc.txt` for an mp4 / folder; `rerun` checks the mp4 again |
 | `shadow_outputs(path or job_id)` | videos (size, duration, audio, QC status), QC reports, logs, thumbnails |
+| `shadow_youtube` | signed-in YouTube channels, whether the OAuth client file is there (setup: [YOUTUBE.md](YOUTUBE.md)) |
+| `shadow_upload_preview(video, channel, privacy, ai, thumbnail, publish, meta, scene)` | what an upload WOULD send (title, description, tags, privacy, AI label, publish time UTC, thumbnail, notes); sends nothing |
+| `shadow_upload(same arguments)` | uploads in the background, returns `upload_id`. Only after the owner approved the preview. Private by default |
+| `shadow_upload_progress(upload_id, wait_seconds)` | percent; when done the video link, Studio link, privacy, scheduled time, thumbnail result |
+| `shadow_upload_cancel(upload_id)` | stops after the current 8 MB chunk; nothing is published |
 
 Blender `.blend` scenes work in every tool (paths may mix .html and .blend); `shadow_render` / `shadow_plan` also take
 `engine` (`scene|eevee|cycles|workbench`) and `device` (`auto|gpu|cpu`), `shadow_check_frames` takes `engine`. See docs/BLENDER.md.
@@ -121,6 +126,11 @@ Blender `.blend` scenes work in every tool (paths may mix .html and .blend); `sh
 Settings use the GUI's choices: quality `best|good|draft`, format `auto|16:9|9:16`, sound `auto|generated|none|file`,
 capture `png|jpeg`, narration `auto|off`, outdated `skip|render` (the GUI asks in a dialog; the server cannot, default skip).
 Defaults: best, auto, auto, png, auto, skip; out_dir = the GUI's Save to.
+
+Upload choices: `privacy` `private|unlisted|public` (default private); `ai` `auto|yes|no` (auto = `AI:` in metadata.txt);
+`thumbnail` `auto|none|<image>` (auto = `THUMBNAIL:` or `<video>_thumb.jpg`); `publish` `auto|none|<date and time>`
+(auto = `PUBLISH:`; e.g. `2026-11-25 05:00 Sydney`). metadata.txt is read next to the video, or `meta`, or next to `scene`.
+The channel is signed in once by the owner in the Shadow window (YouTube... -> Sign in...): the server never sees a password.
 
 ## Notes
 - Jobs run one at a time on one background thread; a second job waits. Jobs live as long as the server process (the client

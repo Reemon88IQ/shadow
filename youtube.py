@@ -410,6 +410,29 @@ def set_thumbnail(video_id, channel_id, image):
         raise YouTubeError(f'{e} (custom thumbnails need a verified channel: youtube.com/verify)') if st == 403 else e
 
 
+def prepare(mp4, channel=None, meta=None, privacy='private', candidates=(), overrides=None, meta_path=None, thumbnail=True, schedule=True):
+    """Everything an upload will send, without sending it (upload_video and the MCP preview both use this):
+    -> (channel dict, videos.insert body, thumbnail path or None, notes [str]). Raises YouTubeError (no channel, no title...)."""
+    if not os.path.isfile(mp4): raise YouTubeError(f'video not found: {mp4}')
+    ch = find_channel(channel); notes = []
+    if meta is None: meta, meta_path = metadata_for(mp4, candidates)
+    if not meta: notes.append('no metadata.txt found: the title is made from the file name, no description or tags')
+    m = dict(meta or {}); m.update({k: v for k, v in (overrides or {}).items() if v is not None})
+    title = m.get('title') or os.path.splitext(os.path.basename(mp4))[0].replace('_shorts', '').replace('-', ' ').replace('_', ' ').title()
+    when = m.get('publish_at') if schedule else None
+    if when and when <= time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 300)):
+        notes.append(f'publish time {when} has passed: uploaded without a schedule'); when = None
+    if schedule and not when and m.get('publish') and not m.get('publish_at'):
+        notes.append(f'PUBLISH "{m["publish"]}" has no date + time: not scheduled')
+    body = video_body(title, m.get('description', ''), m.get('tags', ()), m.get('privacy') or privacy, bool(m.get('kids')),
+                      m.get('category') or '10', publish_at=when, ai=m.get('ai'))
+    img = (thumbnail if isinstance(thumbnail, str) else find_thumbnail(mp4, m, meta_path)) if thumbnail else None
+    if isinstance(thumbnail, str) and not os.path.isfile(thumbnail): notes.append(f'thumbnail not found: {thumbnail}'); img = None
+    if img and os.path.getsize(img) > THUMB_MAX: notes.append(f'thumbnail {os.path.basename(img)} is over 2 MB: YouTube will refuse it')
+    if m.get('ai') is None: notes.append('no AI: line: the altered/synthetic content label is not sent')
+    return ch, body, img, notes
+
+
 def upload_video(mp4, channel=None, meta=None, privacy='private', candidates=(), progress=lambda d, t: None, cancel=None, overrides=None,
                  meta_path=None, thumbnail=True, schedule=True):
     """One call for the app / CLI / MCP: channel (title or id), metadata from `meta` (dict) or metadata.txt (next to the mp4 or
@@ -417,15 +440,7 @@ def upload_video(mp4, channel=None, meta=None, privacy='private', candidates=(),
     thumbnail: True = find_thumbnail(), a path = that image, False = none. schedule=False ignores publish_at; a time already
     past is ignored too (the video is uploaded unscheduled).
     -> upload() result + title, channel, publish_at, thumb ('set' / None / 'error: ...'; a failed thumbnail never fails the upload)."""
-    ch = find_channel(channel)
-    if meta is None: meta, meta_path = metadata_for(mp4, candidates)
-    m = dict(meta or {}); m.update({k: v for k, v in (overrides or {}).items() if v is not None})
-    title = m.get('title') or os.path.splitext(os.path.basename(mp4))[0].replace('_shorts', '').replace('-', ' ').replace('_', ' ').title()
-    when = m.get('publish_at') if schedule else None
-    if when and when <= time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 300)): when = None
-    body = video_body(title, m.get('description', ''), m.get('tags', ()), m.get('privacy') or privacy, bool(m.get('kids')),
-                      m.get('category') or '10', publish_at=when, ai=m.get('ai'))
-    img = (thumbnail if isinstance(thumbnail, str) else find_thumbnail(mp4, m, meta_path)) if thumbnail else None
+    ch, body, img, _ = prepare(mp4, channel, meta, privacy, candidates, overrides, meta_path, thumbnail, schedule)
     r = upload(mp4, ch['id'], body, progress, cancel)
     r.update(title=body['snippet']['title'], channel=ch['title'], publish_at=body['status'].get('publishAt'), thumb=None)
     if img:

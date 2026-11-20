@@ -33,4 +33,5 @@ try:
         check(f'Light #{i + 1}: gray again', {v for k, v in s.items() if k != '.'} == {app.LIGHT_BG}, s)
 finally:
     a.after_cancel(a._poll_id); a.destroy()
+    app.close_log(); import shutil; shutil.rmtree(tmp, ignore_errors=True)
 print(f'\n{sum(res)}/{len(res)} passed'); sys.exit(0 if all(res) else 1)

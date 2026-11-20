@@ -5,6 +5,7 @@ page errors and whether seek(t) is pure (the same time drawn twice must give the
 .blend: Blender renders the frames (blender_core.preview); no purity check (Blender is deterministic), missing textures /
 linked files are problems and "no 9:16 camera" is a note."""
 import base64, functools, http.server, io, os, threading, urllib.parse
+import render_core as rc   # resolve_channel: Chrome, else Edge
 
 DEFAULT_TIMES = '3,25%,50%,75%,end-2'
 
@@ -24,7 +25,7 @@ def sheet_path(scene):
     return os.path.splitext(os.path.abspath(scene))[0] + '.check.jpg'
 
 
-def check(scene, times=None, out=None, only=None, engine='scene', cancel=None, channel='chrome', extra_args=()):
+def check(scene, times=None, out=None, only=None, engine='scene', cancel=None, channel='auto', extra_args=()):
     """Contact sheet + problems for one scene. only: None (both) | '16:9' | '9:16'. engine: .blend only.
     cancel: optional threading.Event, checked between frames. channel/extra_args: Chrome options (tests use software WebGL).
     Returns dict(ok, sheet (path or None), problems [str], notes [str]). Never raises for a bad scene (it is a problem)."""
@@ -48,6 +49,7 @@ def check(scene, times=None, out=None, only=None, engine='scene', cancel=None, c
     try:
         with sync_playwright() as p:
             kw = dict(args=list(extra_args))
+            channel = rc.resolve_channel(channel)
             if channel: kw['channel'] = channel
             b = p.chromium.launch(**kw)
             try:

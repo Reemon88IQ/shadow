@@ -237,13 +237,14 @@ async def m6_async(tmp, d):
             await s.initialize()
             names = sorted(t.name for t in (await s.list_tools()).tools)
             want = sorted(['shadow_info', 'shadow_plan', 'shadow_render', 'shadow_progress', 'shadow_cancel', 'shadow_jobs',
-                           'shadow_check_frames', 'shadow_qc', 'shadow_outputs'])
-            check('M6 stdio server lists the 9 tools', names == want, names)
+                           'shadow_check_frames', 'shadow_qc', 'shadow_outputs', 'shadow_youtube', 'shadow_upload_preview',
+                           'shadow_upload', 'shadow_upload_progress', 'shadow_upload_cancel'])
+            check('M6 stdio server lists the 14 tools', names == want, names)
             info = J(await s.call_tool('shadow_info', {}))
             check('M6 started with a client cut-down environment, the server still finds Chrome / ffmpeg / playwright',
                   info['ready'] == all(rc.check_env().values()), info['env'])
             check('M6 shadow_info: version = render_core.VERSION, default out dir = the GUI Save to setting',
-                  info['version'] == rc.VERSION and info['default_out_dir'] == ms.default_out_dir() and set(info['env']) == {'ffmpeg', 'playwright', 'chrome'},
+                  info['version'] == rc.VERSION and info['default_out_dir'] == ms.default_out_dir() and set(info['env']) == {'ffmpeg', 'playwright', 'chrome', 'browser'},
                   (info['version'], info['default_out_dir']))
             pl = J(await s.call_tool('shadow_plan', {'paths': [d], 'out_dir': os.path.join(tmp, 'o6')}))
             check('M6 shadow_plan over MCP: rows with format/audio/output', len(pl['rows']) == 6 and all('output' in x for x in pl['rows']), len(pl.get('rows', [])))
@@ -312,7 +313,7 @@ async def m7_async(tmp):
             async with ClientSession(r, w) as s:
                 await s.initialize()
                 names = sorted(t.name for t in (await s.list_tools()).tools)
-                check('M7 MCP over HTTP lists the 9 tools', len(names) == 9 and 'shadow_render' in names, names)
+                check('M7 MCP over HTTP lists the 14 tools', len(names) == 14 and 'shadow_render' in names, names)
                 info = json.loads((await s.call_tool('shadow_info', {})).content[0].text)
                 check('M7 shadow_info over HTTP', info.get('version') == rc.VERSION, info.get('version'))
         req = urllib.request.Request(f'http://127.0.0.1:{port}/mcp', method='POST', data=b'{}',
