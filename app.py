@@ -10,6 +10,12 @@ import subtitles
 import updater
 import assistant
 import youtube   # noqa: F401  (YouTubeDialog imports it again; listed here so PyInstaller bundles it)
+# 3.16: these parts live in their own modules; their names are imported back so app.<name> works everywhere
+from scene_paths import *   # noqa: F401,F403  (names, folders, Format / Sound / Folder)
+from scene_paths import _WIN_RESERVED, _META_FOLDER, _META_LUFS   # noqa: F401
+from projects import *   # noqa: F401,F403  (.shadow project files)
+from projects import _rel   # noqa: F401
+from shadow_util import dark_titlebar, narrate_module, open_path   # noqa: F401
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -33,63 +39,15 @@ LOG = os.path.join(os.path.dirname(CFG), 'shadow.log')
 LOG_DIR = os.path.join(os.path.dirname(LOG), 'logs')   # fallback only: a failure log normally goes into the scene's own output folder
 LIGHT_TINT = 39   # Light theme = light gray: sv-ttk's near-white (#fafafa) darkened by this much, for the window and its images alike
 LIGHT_BG = LIGHT_FIELD = '#%02x%02x%02x' % ((250 - LIGHT_TINT,) * 3)   # #d3d3d3 (owner's choice)
-SCENE_EXTS = ('.html', '.htm') + bc.EXTS   # HTML (three.js) scenes and Blender .blend scenes
 BLENDER_ENGINES = list(bc.ENGINES.values())   # GUI labels: Scene setting / Eevee / Cycles (GPU) / Workbench (fast)
 SOUNDS = ['Generated (built into the scene)', 'None (silent)', 'External file...', 'Auto (file next to scene)']
-SONG_EXTS = ('.wav', '.mp3', '.m4a', '.flac', '.ogg', '.aac')   # Auto: <scene>.<ext> next to the .html, first one found wins
 OUTDATED = 'This scene is outdated and does not support 9:16'
-def scene_for_mp4(mp4, scenes):
-    """The scene (of `scenes`, e.g. the queue) that renders this video, or None: <name>.mp4 / <name>_shorts.mp4 (also with a
-    _2 / _3 suffix) belongs to the scene whose output name is <name> (short_x.html / x-short.html make x_shorts.mp4).
-    A 9:16 file prefers the Short-named scene, a 16:9 file the other one. Pure."""
-    raw = os.path.splitext(os.path.basename(mp4))[0]
-    hits, short = [], False
-    for stem in (raw, re.sub(r'_\d+$', '', raw)):   # exact name first (a scene may be called ocean_2), then without _2/_3
-        short = stem.lower().endswith('_shorts')
-        base = (stem[:-7] if short else stem).lower()
-        hits = [f for f in scenes if strip_short_marker(scene_folder_name(f)).lower() == base]
-        if hits: break
-    if not hits: return None
-    pref = [f for f in hits if (strip_short_marker(scene_folder_name(f)) != scene_folder_name(f)) == short]
-    return (pref or hits)[0]
 
-PROJECT_EXT = '.shadow'   # project file: the queue + its options (JSON)
-PROJECT_VERSION = 1
-
-def _rel(p, base):
-    """p relative to base when it is on the same drive (a project folder can be moved / copied), else absolute."""
-    try: return os.path.relpath(p, base)
-    except ValueError: return p
-
-def write_project(path, data):
-    """Save project_data() as JSON; file paths relative to the project's folder. Written via a temp file + rename."""
-    base = os.path.dirname(os.path.abspath(path)); rel = lambda p: _rel(p, base) if isinstance(p, str) and p else p
-    narr = {rel(f): {k: (rel(v) if k in ('wav', 'words') else v) for k, v in n.items()} for f, n in data['narration'].items()}
-    o = dict(data['options']); o['sound_file'] = rel(o.get('sound_file') or '')
-    out = dict(shadow_project=PROJECT_VERSION, shadow_version=rc.VERSION, files=[rel(f) for f in data['files']], narration=narr, options=o)
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f: json.dump(out, f, indent=1, ensure_ascii=False)
-    os.replace(tmp, path)
-
-def read_project(path):
-    """A .shadow file -> dict(files (absolute, in order), narration {file: settings}, options). Raises ValueError when it is
-    not a Shadow project."""
-    with open(path, encoding='utf-8-sig') as f: d = json.load(f)
-    if not isinstance(d, dict) or 'shadow_project' not in d or not isinstance(d.get('files'), list): raise ValueError('not a Shadow project file')
-    base = os.path.dirname(os.path.abspath(path))
-    ab = lambda p: os.path.normpath(os.path.join(base, p)) if isinstance(p, str) and p else p
-    narr = {ab(f): {k: (ab(v) if k in ('wav', 'words') else v) for k, v in (n or {}).items()} for f, n in (d.get('narration') or {}).items()}
-    o = dict(d.get('options') or {}); o['sound_file'] = ab(o.get('sound_file') or '') or ''
-    return dict(files=[ab(f) for f in d['files'] if isinstance(f, str)], narration=narr, options=o)
 
 SKIPPED_SCENE_CHECK = 'Skipped (scene check)'   # Render: the scene misses window.__ready / seek / DURATION / canvas#c and the user chose No
-FORMAT_AUTO = 'Auto (by file name)'   # per file: a name starting with "short_" -> 9:16, every other file -> 16:9
-FORMAT_CHOICES = list(rc.FORMATS) + [FORMAT_AUTO]
 # Capture: how each frame leaves the browser (render_core.render(capture=...)). PNG = lossless; JPEG = about 2x faster render,
 # final video very slightly softer (measured SSIM 0.986 -> 0.983 on a 1080p scene) and ~1.7x larger file.
 CAPTURES = {'Best quality (PNG)': 'png', 'Fast (JPEG, ~2x faster)': 'jpeg'}
-SHORT_PREFIX = 'short_'
-SHORT_SUFFIXES = tuple(sep + w for sep in ('-', '_', ' ') for w in ('short', 'shorts'))   # rain-short.html, rain_shorts.html ... -> 9:16 too
 
 log = logging.getLogger('shadow')
 def close_log():
@@ -118,8 +76,6 @@ def save_cfg(d):
     except Exception: pass
 def fmt(sec):
     sec = int(sec); return f'{sec // 60}:{sec % 60:02d}'
-def open_path(p):
-    os.startfile(p) if hasattr(os, 'startfile') else subprocess.Popen(['xdg-open', p])
 
 def system_theme():
     try: return 'dark' if (darkdetect.theme() or '').lower() == 'dark' else 'light'
@@ -129,193 +85,10 @@ def blender_engine(label):
     """Blender combobox label -> blender_core engine key ('scene' | 'eevee' | 'cycles' | 'workbench')."""
     return next((k for k, v in bc.ENGINES.items() if v == label), 'scene')
 
-def scene_info(path):
-    """What the scene source supports: 9:16 needs it to read the h URL param (get('h')). Sound is checked at render time.
-    A .blend always 'supports' 9:16: it uses its 9:16 camera, or the 16:9 camera centre-cropped (warned at render time)."""
-    if bc.is_blend(path): return {'vertical': True, 'blender': True}
-    try:
-        with open(path, encoding='utf-8', errors='replace') as f: src = f.read()
-    except Exception:
-        return {'vertical': False}
-    return {'vertical': bool(re.search(r"""get\(\s*['"]h['"]\s*\)""", src))}
-
-def unique_path(path, used=()):
-    """path, or path_2, path_3, ... (before the extension): the first one that is not already on disk and not in `used`
-    (paths already given out in this batch, compared case-insensitively like Windows). Pure apart from os.path.exists."""
-    taken = {os.path.normcase(os.path.abspath(u)) for u in used}
-    base, ext = os.path.splitext(path); cand = path; i = 2
-    while os.path.exists(cand) or os.path.normcase(os.path.abspath(cand)) in taken:
-        cand = f'{base}_{i}{ext}'; i += 1
-    return cand
-
-_WIN_RESERVED = {'CON', 'PRN', 'AUX', 'NUL', *(f'COM{i}' for i in range(1, 10)), *(f'LPT{i}' for i in range(1, 10))}
-
-def scene_folder_name(scene_path):
-    """Name of a scene's output folder (and the base of its file names): the ORIGINAL scene file name without extension.
-    The hidden .shadow_narr_<id>_ prefix of a narration temp scene is dropped, so narrated renders use the original name.
-    Windows-safe: no leading/trailing dots or spaces, no reserved device names (CON, NUL, COM1, ...), never empty."""
-    name = re.sub(r'^\.shadow_narr_[0-9a-f]+_', '', os.path.basename(scene_path))
-    name = os.path.splitext(name)[0].strip(' .')   # leading dots too: ".html" has no extension for splitext, a leading dot hides the folder
-    if not name: name = 'scene'
-    if name.split('.')[0].upper() in _WIN_RESERVED: name = '_' + name
-    return name
-
-def strip_short_marker(name):
-    """'short_ocean' / 'ocean-short' / 'ocean_short' / 'ocean short' / '...shorts' -> 'ocean' (the Format Auto markers, any case);
-    other names unchanged. Never returns an empty name."""
-    low = name.lower()
-    if low.startswith(SHORT_PREFIX): out = name[len(SHORT_PREFIX):]
-    else:
-        suf = next((s for s in sorted(SHORT_SUFFIXES, key=len, reverse=True) if low.endswith(s)), None)
-        out = name[:-len(suf)] if suf else name
-    out = out.strip(' ._-')
-    return out or name
-
-_META_FOLDER = re.compile(r"""<meta\s+name\s*=\s*["']shadow-folder["']\s+content\s*=\s*["']([^"'<>]*)["']""", re.I)
-
-def scene_out_folder(scene_path):
-    """The channel folder a scene asks for with <meta name="shadow-folder" content="Music"> (also "Music/2026"): the
-    relative sub-path of Save to its folder goes in, '' when none or for a .blend. Windows-safe parts only; '..', drive
-    letters and absolute paths are ignored."""
-    if not scene_path.lower().endswith(('.html', '.htm')): return ''
-    try:
-        with open(scene_path, encoding='utf-8', errors='replace') as fh: head = fh.read(20000)
-    except OSError: return ''
-    m = _META_FOLDER.search(head)
-    return safe_rel_folder(m.group(1)) if m else ''
-
-_META_LUFS = re.compile(r"""<meta\s+name\s*=\s*["']shadow-lufs["']\s+content\s*=\s*["']\s*(-?\d+(?:\.\d+)?)\s*(?:lufs)?\s*["']""", re.I)
-
-def target_lufs(scene_path, sound='generated', audio_file=None, narrated=False):
-    """Loudness target of one render (render_core.render(lufs=...)): <meta name="shadow-lufs" content="-14"> in the scene
-    wins (inside rc.LUFS_RANGE); else a song = rc.MUSIC_LUFS (-14, YouTube's playback level): a song file as the sound
-    (External file, or Sound Auto finding <scene>.mp3 next to it) without narration, or a scene whose shadow-folder is
-    Music; everything else (own generated sound, narration) rc.DEFAULT_LUFS (-15). Pure apart from reading the scene."""
-    if scene_path.lower().endswith(('.html', '.htm')):
-        try:
-            with open(scene_path, encoding='utf-8', errors='replace') as fh: m = _META_LUFS.search(fh.read(20000))
-        except OSError: m = None
-        if m and rc.LUFS_RANGE[0] <= float(m.group(1)) <= rc.LUFS_RANGE[1]: return float(m.group(1))
-    song = not narrated and (sound == 'file' and audio_file or sound == 'auto' and find_scene_audio(scene_path))
-    if song or re.split(r'[\\/]', scene_out_folder(scene_path))[0].lower() == 'music': return rc.MUSIC_LUFS
-    return rc.DEFAULT_LUFS
-
-def safe_rel_folder(text):
-    """'Music' / 'Music/2026' -> a Windows-safe relative path ('' if nothing is left): no '..', no : ? * etc., no drive,
-    reserved device names prefixed with _."""
-    parts = []
-    for p in re.split(r'[\\/]+', text or ''):
-        p = re.sub(r'[<>:"|?*\x00-\x1f]', '', p).strip(' .')
-        if not p or p == '..': continue
-        if p.split('.')[0].upper() in _WIN_RESERVED: p = '_' + p
-        parts.append(p)
-    return os.path.join(*parts) if parts else ''
-
-# "Folder" option: which main folder under Save to a video goes into
-FOLDER_AUTO = 'Auto (Music / Video)'
-FOLDER_NONE = 'None (straight in Save to)'
-DEFAULT_FOLDERS = ['Music', 'Video']
-
-def category_folder(scene_path, folder_choice, sound='generated', audio_file=None, narrated=False):
-    """The main folder (relative to Save to) for one scene. folder_choice: FOLDER_AUTO | FOLDER_NONE | a folder name
-    ('Music', 'Video', one the user added) | None (= only the scene's own <meta name="shadow-folder">, the old behaviour).
-    Auto: the scene's meta wins; else a song file as its sound (Sound Auto finds <scene>.mp3 next to it, or External file)
-    and no narration -> 'Music'; everything else (own sound, narration, silent) -> 'Video'. Pure apart from reading the scene."""
-    if folder_choice is None: return scene_out_folder(scene_path)
-    if folder_choice == FOLDER_NONE: return ''
-    if folder_choice == FOLDER_AUTO:
-        meta = scene_out_folder(scene_path)
-        if meta: return meta
-        song = not narrated and (sound == 'file' and audio_file or sound == 'auto' and find_scene_audio(scene_path))
-        return 'Music' if song else 'Video'
-    return safe_rel_folder(folder_choice)
-
-def output_place(scene_path, vertical, main=None):
-    """(folder relative to Save to, file stem) of a scene's video: <main>\\<name>\\<name>.mp4. main: the main folder from
-    category_folder() (None = the scene's own meta folder). A 9:16 render of a scene named like a Short (short_ocean.html)
-    drops the marker, so the Short lands next to the 16:9 video: ocean\\ocean_shorts.mp4."""
-    base = scene_folder_name(scene_path)
-    if vertical: base = strip_short_marker(base)
-    main = scene_out_folder(scene_path) if main is None else main
-    return os.path.join(main, base), base + ('_shorts' if vertical else '')
-
-def sound_mode(label):
-    """Sound combobox label -> 'generated' | 'none' | 'file' | 'auto'."""
-    return 'file' if label.startswith('External') else 'none' if label.startswith('None') else 'auto' if label.startswith('Auto') else 'generated'
-
-def find_scene_audio(scene_path):
-    """Auto mode: the audio file with the scene's base name next to it (.wav, .mp3, .m4a, .flac, .ogg, .aac, in that
-    order), or None. <scene>.wav together with <scene>.words.json is a narration voice, not a song, so it is skipped."""
-    base = os.path.splitext(scene_path)[0]
-    voice = os.path.isfile(base + '.words.json') and not bc.is_blend(scene_path)   # a .blend has no captions: its <scene>.wav is just its sound
-    for ext in SONG_EXTS:
-        if ext == '.wav' and voice: continue
-        for e in (ext, ext.upper()):
-            if os.path.isfile(base + e): return base + e
-    return None
-
-def format_vertical(scene_path, fmt_label):
-    """True = 9:16 for this file. fmt_label is the Format combobox label; in Auto (by file name) a scene whose file name
-    starts with "short_" or ends with "-short" / "_short" / " short" (also "...shorts"; any case) is 9:16, every other one
-    16:9. Unknown labels -> 16:9. Pure (no disk access)."""
-    if fmt_label == FORMAT_AUTO:
-        stem = os.path.splitext(os.path.basename(scene_path))[0].lower()
-        return stem.startswith(SHORT_PREFIX) or stem.endswith(SHORT_SUFFIXES)
-    return bool(rc.FORMATS.get(fmt_label, False))
-
-def format_label(vertical):
-    """The queue's Format column text."""
-    return '9:16' if vertical else '16:9'
-
-def resolve_audio(scene_path, mode, audio_file=None, narrated=False):
-    """What sound one queue item uses. mode: 'generated' | 'none' | 'file' | 'auto'; audio_file: the manual External file;
-    narrated: the item has narration (attached or embedded), whose voice lives in the page's own sound.
-    Returns dict(sound, audio_file, label, warn): sound/audio_file go to render_core, label is the queue's Audio column,
-    warn is None or why Auto fell back to the scene's own sound. Pure apart from os.path.isfile."""
-    if narrated:
-        return dict(sound='generated', audio_file=None, label='narration', warn=None)
-    if mode == 'auto':
-        song = find_scene_audio(scene_path)
-        if song: return dict(sound='file', audio_file=song, label=os.path.basename(song), warn=None)
-        return dict(sound='generated', audio_file=None, label='scene sound (no file)',
-                    warn=f'{os.path.basename(scene_path)}: no audio file next to it, used the scene sound')
-    if mode == 'file':
-        return dict(sound='file', audio_file=audio_file, label=os.path.basename(audio_file or '') or '?', warn=None)
-    if mode == 'none':
-        return dict(sound='none', audio_file=None, label='silent', warn=None)
-    return dict(sound='generated', audio_file=None, label='scene sound', warn=None)
 
 # ---------------------------------------------------------------- folders, up-to-date check, time estimate, notification
 SKIPPED_UP_TO_DATE = 'Skipped (up to date)'
 
-def collect_scenes(paths, recursive=False):
-    """.html/.htm and .blend scenes from files and folders (a folder: its scenes, sorted; recursive=True also subfolders).
-    Shadow's hidden .shadow_narr_* temp scenes and other dot-files are skipped. Returns (scenes, problems).
-    Used by "Add folder...", dropping a folder on the table, and tools/mcp_server.py."""
-    if isinstance(paths, str): paths = [paths]
-    out, problems = [], []
-    for p in paths or []:
-        p = os.path.normpath(os.path.abspath(os.path.expanduser(p)))
-        if os.path.isdir(p):
-            pat = os.path.join(p, '**', '*') if recursive else os.path.join(p, '*')
-            found = sorted(f for f in glob.glob(pat, recursive=recursive)
-                           if f.lower().endswith(SCENE_EXTS) and os.path.isfile(f) and not os.path.basename(f).startswith('.'))
-            if not found: problems.append(f'no .html or .blend scenes in folder: {p}')
-            out += found
-        elif os.path.isfile(p) and p.lower().endswith(SCENE_EXTS):
-            out.append(p)
-        else:
-            problems.append(f'not a scene file or folder: {p}')
-    seen, uniq = set(), []
-    for f in out:
-        k = os.path.normcase(f)
-        if k not in seen: seen.add(k); uniq.append(f)
-    return uniq, problems
-
-def output_mp4(out, scene_path, vertical, main=None):
-    """The first-choice output of a scene: <out>\\[main folder]\\<scene name>\\<scene>.mp4 (or <name>_shorts.mp4 for 9:16), see output_place."""
-    sub, stem = output_place(scene_path, vertical, main)
-    return os.path.join(out, sub, stem + '.mp4')
 
 def up_to_date(scene_path, out, vertical, deps=(), expect=None, main=None):
     """The existing output mp4 if this scene does not need rendering again, else None: <out>\\<scene>\\<scene>.mp4 (or
@@ -495,11 +268,6 @@ VOICE_MARK = '[voice]'             # shown after the file name of a queue row th
 VOICE_EMBEDDED_MARK = '[voice embedded]'   # the scene file itself already contains narration
 NARR_STALE_S = 3600               # older leftovers of a crashed run are removed before writing a new one
 
-def narrate_module():
-    """make_narrated_scene, from tools/narrate next to app.py or inside the PyInstaller bundle (_MEIPASS)."""
-    base = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__))), 'tools', 'narrate')
-    if base not in sys.path: sys.path.insert(0, base)
-    return importlib.import_module('make_narrated_scene')
 
 def remove_with_retries(path, tries=3, delay=0.3):
     """Delete a file, retrying a few times (OneDrive / antivirus can hold it for a moment). Never raises."""
@@ -725,24 +493,6 @@ def probe(mp4):
     if not v: return None
     return v['width'], v['height'], float(j.get('format', {}).get('duration', 0) or 0), any(s.get('codec_type') == 'audio' for s in j['streams'])
 
-def dark_titlebar(win, dark):
-    """Windows 10 1809+/11: DWMWA_USE_IMMERSIVE_DARK_MODE (20, or 19 on old builds). On Windows 11 the caption colour is also
-    set (DWMWA_CAPTION_COLOR / TEXT_COLOR), otherwise "accent colour on title bars" keeps the bar coloured."""
-    if os.name != 'nt': return
-    try:
-        import ctypes
-        win.update_idletasks()
-        dwm = ctypes.windll.dwmapi; hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
-        def put(attr, v):
-            v = ctypes.c_uint(v); return dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), ctypes.sizeof(v))
-        if put(20, 1 if dark else 0) != 0: put(19, 1 if dark else 0)
-        DEFAULT = 0xFFFFFFFF  # DWMWA_COLOR_DEFAULT
-        put(35, 0x001C1C1C if dark else DEFAULT)   # caption colour, COLORREF 0x00BBGGRR
-        put(36, 0x00FFFFFF if dark else DEFAULT)   # caption text
-        # repaint the non-client area now (SWP_NOMOVE|NOSIZE|NOZORDER|NOACTIVATE|FRAMECHANGED)
-        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
-    except Exception:
-        pass
 
 def dpi_aware():
     """Sharp text on scaled displays (Tk then scales its fonts itself)."""
@@ -1778,252 +1528,6 @@ class App(Root):
         try: return CheckWindow(self, f, res)
         except Exception: log.exception('check window'); return None
 
-class YouTubeDialog:
-    """YouTube...: upload rendered videos to a signed-in channel (youtube.py, YouTube Data API, your own OAuth client).
-    Titles / descriptions / tags / Made for Kids come from metadata.txt next to the video or next to its scene ('=== SHORT ===' section
-    for *_shorts.mp4). Privacy defaults to Private. Until the Google Cloud project passes YouTube's audit, YouTube keeps every
-    API upload Private whatever is chosen. upload() runs in a thread; tests call add()/start() with youtube.py patched."""
-    def __init__(self, app, items):
-        import youtube as ytm
-        self.app, self.ytm, self.items, self.cancel, self.busy, self.last = app, ytm, [], threading.Event(), False, None
-        t = self.top = tk.Toplevel(app); t.title('Upload to YouTube'); t.transient(app); t.minsize(640, 360)
-        f = ttk.Frame(t, padding=14); f.pack(fill='both', expand=True)
-        ttk.Label(f, text='Channel').grid(row=0, column=0, sticky='w')
-        self.channel = tk.StringVar(); self.ch_box = ttk.Combobox(f, textvariable=self.channel, state='readonly', width=34)
-        self.ch_box.grid(row=0, column=1, sticky='w', padx=8)
-        ttk.Button(f, text='Sign in...', command=self.sign_in).grid(row=0, column=2, sticky='w')
-        self.tree = ttk.Treeview(f, columns=('title', 'when', 'status'), height=6)
-        for c, w, txt in (('#0', 200, 'Video'), ('title', 240, 'Title (metadata.txt)'), ('when', 120, 'Publish'), ('status', 170, 'Status')):
-            self.tree.heading(c, text=txt); self.tree.column(c, width=w, stretch=c != 'status')
-        self.tree.grid(row=1, column=0, columnspan=4, sticky='nsew', pady=10)
-        self.tree.bind('<Double-1>', lambda e: self.open_selected())
-        self.tree.bind('<<TreeviewSelect>>', lambda e: self.show_source())
-        self.ask = lambda title, text: messagebox.askyesno(title, text, parent=self.top)   # tests replace it
-        ttk.Label(f, text='Privacy').grid(row=2, column=0, sticky='w')
-        self.privacy = tk.StringVar(value='private')
-        ttk.Combobox(f, textvariable=self.privacy, values=list(ytm.PRIVACY), state='readonly', width=12).grid(row=2, column=1, sticky='w', padx=8)
-        self.kids = tk.BooleanVar(value=False)
-        ttk.Checkbutton(f, text='Made for kids', variable=self.kids).grid(row=2, column=2, sticky='w')
-        self.ai, self.thumb, self.sched = tk.BooleanVar(value=False), tk.BooleanVar(value=True), tk.BooleanVar(value=True)
-        opt = ttk.Frame(f); opt.grid(row=3, column=0, columnspan=4, sticky='w', pady=(6, 0))
-        ttk.Checkbutton(opt, text='Altered or synthetic (AI) content', variable=self.ai).pack(side='left')
-        ttk.Checkbutton(opt, text='Set thumbnail (*_thumb.jpg)', variable=self.thumb).pack(side='left', padx=12)
-        ttk.Checkbutton(opt, text='Schedule (PUBLISH: time)', variable=self.sched).pack(side='left')
-        ttk.Label(f, text='Until Google approves the app (YouTube API audit), YouTube keeps API uploads Private.',
-                  foreground='#888').grid(row=4, column=0, columnspan=4, sticky='w', pady=(6, 0))
-        self.bar = ttk.Progressbar(f, maximum=100); self.bar.grid(row=5, column=0, columnspan=4, sticky='we', pady=(10, 0))
-        self.msg = ttk.Label(f, text='', foreground='#888'); self.msg.grid(row=6, column=0, columnspan=4, sticky='w')
-        bt = ttk.Frame(f); bt.grid(row=7, column=0, columnspan=4, sticky='we', pady=(10, 0))
-        ttk.Button(bt, text='Add video...', command=self.pick).pack(side='left')
-        ttk.Button(bt, text='Remove', command=self.remove).pack(side='left', padx=6)
-        self.studio_btn = ttk.Button(bt, text='Open in Studio', command=self.open_selected, state='disabled'); self.studio_btn.pack(side='left')
-        ttk.Button(bt, text='Close', command=self.close).pack(side='right')
-        self.up_btn = ttk.Button(bt, text='Upload', style='Accent.TButton', command=self.start); self.up_btn.pack(side='right', padx=6)
-        f.columnconfigure(3, weight=1); f.rowconfigure(1, weight=1)
-        t.protocol('WM_DELETE_WINDOW', self.close); t.bind('<Escape>', lambda e: self.close())
-        dark_titlebar(t, app.theme == 'dark')
-        self.refresh_channels()
-        for mp4, scene in items: self.add(mp4, scene)
-        if not self.items: self.msg.config(text='Render first, or "Add video..." to pick mp4 files.')
-
-    def refresh_channels(self, select=None):
-        ch = self.ytm.channels(); names = [c['title'] for c in ch]
-        self.ch_box.config(values=names)
-        if select: self.channel.set(select)
-        elif self.channel.get() not in names: self.channel.set(names[0] if len(names) == 1 else '')
-        try: self.ytm.load_client()
-        except self.ytm.YouTubeError as e: self.msg.config(text=str(e))
-
-    def add(self, mp4, scene=None):
-        """One video row. Its metadata.txt is looked for next to the video, then next to its scene: the row's scene, or for
-        "Add video..." the queued scene that makes this file (scene_for_mp4), so a picked mp4 still gets its metadata."""
-        mp4 = os.path.normpath(mp4)   # the file picker gives C:/... - the same file must not be listed twice
-        if any(os.path.normcase(i['mp4']) == os.path.normcase(mp4) for i in self.items): return
-        scene = scene or scene_for_mp4(mp4, getattr(self.app, 'files', []))
-        it = dict(mp4=mp4, scene=scene, cands=[os.path.dirname(scene)] if scene else [], meta=None, src=None, result=None)
-        it['iid'] = self.tree.insert('', 'end', text=os.path.basename(mp4), values=('', '', 'Ready'))
-        self.items.append(it); self.load_meta(it)
-        meta = it['meta']
-        if meta and meta.get('kids') is not None and len(self.items) == 1: self.kids.set(bool(meta['kids']))
-        if meta and meta.get('ai') is not None and len(self.items) == 1: self.ai.set(bool(meta['ai']))
-
-    def load_meta(self, it):
-        """(Re)read the row's metadata.txt from disk (also right before Upload: a file written after the dialog opened counts)."""
-        it['meta'], it['src'] = self.ytm.metadata_for(it['mp4'], it['cands'])
-        m = it['meta'] or {}
-        self.tree.set(it['iid'], 'title', m.get('title') or '(no metadata.txt: file name)'); self.tree.set(it['iid'], 'when', self.when_text(m))
-
-    def show_source(self):
-        """Status line for the selected row: which metadata.txt its upload will use."""
-        sel = set(self.tree.selection()); it = next((i for i in self.items if i['iid'] in sel), None)
-        if it: self.msg.config(text=f"metadata: {it['src']}" if it['src'] else 'no metadata.txt next to this video'
-                               + (f" or its scene ({os.path.basename(it['scene'])})" if it['scene'] else ' (and no queued scene makes it)'))
-
-    @staticmethod
-    def when_text(meta):
-        """Publish column: the PUBLISH: time in this PC's zone, '' without PUBLISH:, '(not a date)' when it has no date + time."""
-        m = meta or {}
-        if m.get('publish_at'):
-            import datetime
-            t = datetime.datetime.strptime(m['publish_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc).astimezone()
-            return t.strftime('%a %d %b %H:%M')
-        return '(not a date)' if m.get('publish') else ''
-
-    def pick(self):
-        for p in filedialog.askopenfilenames(parent=self.top, filetypes=[('MP4 video', '*.mp4')], initialdir=self.app.out_dir.get()): self.add(p)
-
-    def remove(self):
-        if self.busy: return
-        sel = set(self.tree.selection())
-        for it in [i for i in self.items if i['iid'] in sel]: self.tree.delete(it['iid']); self.items.remove(it)
-
-    def sign_in(self):
-        if self.busy: return
-        self.msg.config(text='Sign in on the Google page that opened in your browser...')
-        def work():
-            try: ch = self.ytm.sign_in(); self.top.after(0, lambda: (self.refresh_channels(ch['title']), self.msg.config(text=f"Signed in: {ch['title']}")))
-            except Exception as e: self.top.after(0, lambda e=e: self.msg.config(text=f'Sign-in failed: {e}'))
-        threading.Thread(target=work, daemon=True).start()
-
-    def start(self, wait=False):
-        """Upload every video that is not uploaded yet. wait=True (tests) runs in this thread."""
-        if self.busy:
-            self.cancel.set(); self.msg.config(text='Stopping after the current chunk...'); return
-        todo = [i for i in self.items if not i['result']]
-        if not todo: self.msg.config(text='Nothing to upload.'); return
-        if not self.channel.get(): self.msg.config(text='Choose a channel (or Sign in...).'); return
-        for it in todo: self.load_meta(it)   # what is on disk now, not what was there when the dialog opened
-        bare = [os.path.basename(i['mp4']) for i in todo if not i['meta']]
-        if bare and not self.ask('YouTube', 'No metadata.txt found for:\n\n' + '\n'.join(bare) +
-                                 '\n\nThey would be uploaded with the file name as title and no description, tags or schedule. Upload them anyway?'):
-            self.msg.config(text='Put metadata.txt next to the video or its scene, then press Upload.'); return
-        self.busy = True; self.cancel.clear(); self.up_btn.config(text='Stop'); ch = self.channel.get()
-        privacy, kids, ai, thumb, sched = self.privacy.get(), self.kids.get(), self.ai.get(), self.thumb.get(), self.sched.get()
-        bad_thumb = []
-        def set_row(it, status): self.top.after(0, lambda: self.tree.set(it['iid'], 'status', status))
-        def work():
-            ok = 0
-            for n, it in enumerate(todo):
-                set_row(it, 'Uploading 0%')
-                def prog(d, t, it=it, n=n):
-                    pct = d * 100 // max(t, 1); set_row(it, f'Uploading {pct}%')
-                    self.top.after(0, lambda: self.bar.config(value=(n + d / max(t, 1)) * 100 / len(todo)))
-                try:
-                    r = self.ytm.upload_video(it['mp4'], ch, it['meta'] or {}, privacy, progress=prog, cancel=self.cancel,
-                                              overrides=dict(kids=kids, privacy=privacy, ai=ai), meta_path=it['src'],
-                                              thumbnail=thumb, schedule=sched)
-                    it['result'] = r; self.last = r; ok += 1
-                    extra = (['scheduled'] if r.get('publish_at') else []) + (['thumbnail'] if r.get('thumb') == 'set' else [])
-                    if str(r.get('thumb') or '').startswith('error'): extra.append('no thumbnail'); bad_thumb.append(r['thumb'][7:])
-                    set_row(it, f"Done ({', '.join([r.get('privacy') or privacy] + extra)})")
-                    log.info('youtube upload %s -> %s %s thumb=%s publish=%s', it['mp4'], r['channel'], r['url'], r.get('thumb'), r.get('publish_at'))
-                except Exception as e:
-                    set_row(it, 'Stopped' if self.cancel.is_set() else 'Error'); log.warning('youtube upload %s: %s', it['mp4'], e)
-                    self.top.after(0, lambda e=e: self.msg.config(text=str(e)))
-                    if self.cancel.is_set(): break
-            def end():
-                self.busy = False; self.up_btn.config(text='Upload')
-                if ok:
-                    self.studio_btn.config(state='normal')
-                    self.msg.config(text=f'{ok} uploaded to {ch}. Double-click a row to open it in YouTube Studio.'
-                                    + (f' Thumbnail not set: {bad_thumb[-1]}' if bad_thumb else ''))
-            self.top.after(0, end)
-        if wait: work()
-        else: threading.Thread(target=work, daemon=True).start()
-
-    def open_selected(self):
-        sel = set(self.tree.selection())
-        it = next((i for i in self.items if i['iid'] in sel and i['result']), None) or (self.last and {'result': self.last})
-        if it: webbrowser.open(it['result']['studio'])
-
-    def close(self):
-        if self.busy and not messagebox.askyesno('YouTube', 'An upload is running. Stop it and close?', parent=self.top): return
-        self.cancel.set(); self.top.destroy()
-
-class NarrationDialog:
-    """Small dialog for one queue row: narration WAV, words.json, style, captions; OK / Remove narration / Cancel.
-    Plain ttk widgets, so it follows the app's sv-ttk dark/light theme; the title bar follows it too.
-    ok() / remove() / cancel() are the button handlers (tests call them directly)."""
-    def __init__(self, app, path):
-        self.app, self.path = app, path
-        cur = app.narr.get(path) or {}
-        base = os.path.splitext(path)[0]
-        guess = lambda ext: base + ext if os.path.isfile(base + ext) else ''
-        self.wav = tk.StringVar(value=cur.get('wav') or guess('.wav'))
-        w = cur.get('words'); self.words = tk.StringVar(value=w if isinstance(w, str) else guess('.words.json'))
-        self.style = tk.StringVar(value=cur.get('style', 'pop'))
-        self.captions = tk.BooleanVar(value=cur.get('captions', True))
-        t = self.top = tk.Toplevel(app); t.title(f'Narration - {os.path.basename(path)}'); t.transient(app); t.resizable(False, False)
-        f = ttk.Frame(t, padding=14); f.pack(fill='both', expand=True)
-        for r, (label, var, pick) in enumerate((('Voice (WAV)', self.wav, self.pick_wav), ('Words (words.json)', self.words, self.pick_words))):
-            ttk.Label(f, text=label).grid(row=r, column=0, sticky='w', pady=4)
-            ttk.Entry(f, textvariable=var, width=46).grid(row=r, column=1, sticky='we', padx=8, pady=4)
-            ttk.Button(f, text='Browse...', command=pick).grid(row=r, column=2, pady=4)
-        ttk.Label(f, text='Caption style').grid(row=2, column=0, sticky='w', pady=4)
-        ttk.Combobox(f, textvariable=self.style, values=list(narrate_module().STYLES), state='readonly', width=12).grid(row=2, column=1, sticky='w', padx=8, pady=4)
-        ttk.Checkbutton(f, text='Word captions (2D scenes; WebGL scenes get the voice only)', variable=self.captions).grid(row=3, column=1, columnspan=2, sticky='w', padx=8, pady=4)
-        bt = ttk.Frame(f); bt.grid(row=4, column=0, columnspan=3, sticky='e', pady=(10, 0))
-        ttk.Button(bt, text='OK', style='Accent.TButton', command=self.ok).pack(side='left')
-        ttk.Button(bt, text='Remove narration', command=self.remove, state='normal' if path in app.narr else 'disabled').pack(side='left', padx=6)
-        ttk.Button(bt, text='Cancel', command=self.cancel).pack(side='left')
-        t.protocol('WM_DELETE_WINDOW', self.cancel); t.bind('<Escape>', lambda e: self.cancel())
-        dark_titlebar(t, app.theme == 'dark')
-        try: t.grab_set()
-        except tk.TclError: pass   # the main window may be hidden (tests)
-    def pick_wav(self):
-        p = filedialog.askopenfilename(parent=self.top, filetypes=[('WAV', '*.wav'), ('Audio', '*.wav *.mp3 *.m4a *.flac *.ogg')])
-        if p: self.wav.set(p)
-    def pick_words(self):
-        p = filedialog.askopenfilename(parent=self.top, filetypes=[('Word timings', '*.json')])
-        if p: self.words.set(p)
-    def ok(self):
-        err = self.app.set_narration(self.path, self.wav.get().strip(), self.words.get().strip(), style=self.style.get(), captions=self.captions.get())
-        if err:
-            messagebox.showerror('Narration', err, parent=self.top); return err   # stays open to fix it
-        self.app.status.config(text=f'{os.path.basename(self.path)}: narration set ({self.style.get()})'); self.close(); return None
-    def remove(self):
-        self.app.clear_narration(self.path); self.app.status.config(text=f'{os.path.basename(self.path)}: narration removed'); self.close()
-    def cancel(self): self.close()
-    def close(self):
-        try: self.top.grab_release()
-        except tk.TclError: pass
-        self.top.destroy(); self.app._update_narr_btn()
-
-class CheckWindow:
-    """Result of 'Check frames' for one scene: the contact sheet (scaled to fit), OK or the problems (page errors, impure
-    seek(t), never ready...), notes, and Open image / Close. Follows the app's theme."""
-    def __init__(self, app, path, res):
-        self.app, self.path, self.res = app, path, res
-        t = self.top = tk.Toplevel(app); t.title(f'Frame check - {os.path.basename(path)}'); t.transient(app)
-        f = ttk.Frame(t, padding=12); f.pack(fill='both', expand=True)
-        self.photo = None
-        if res.get('sheet') and os.path.isfile(res['sheet']):
-            try:
-                import base64, io
-                from PIL import Image
-                with Image.open(res['sheet']) as f0: im = f0.copy()   # closed at once: an open file would stay locked on Windows
-                k = app.winfo_fpixels('1i') / 96
-                im.thumbnail((round(1100 * k), round(560 * k)))
-                buf = io.BytesIO(); im.save(buf, 'PNG')   # Tk reads PNG itself: no PIL.ImageTk needed
-                self.photo = tk.PhotoImage(master=t, data=base64.b64encode(buf.getvalue()).decode('ascii'), format='png')
-                ttk.Label(f, image=self.photo).pack(anchor='w')
-            except Exception:
-                log.exception('check window image')
-        ok = res.get('ok')
-        lines = (['OK: no page errors, seek(t) is pure.' if not bc.is_blend(path) else 'OK: no problems.'] if ok
-                 else ['Problems:'] + [f'  • {p}' for p in res.get('problems') or []])
-        lines += [f'Note: {n}' for n in res.get('notes') or []]
-        if res.get('sheet'): lines.append(f'Sheet: {res["sheet"]}')
-        ttk.Label(f, text='\n'.join(lines), justify='left', wraplength=round(1100 * app.winfo_fpixels('1i') / 96),
-                  foreground='#3fb950' if ok else '#f85149').pack(anchor='w', pady=(8, 0))
-        bt = ttk.Frame(f); bt.pack(anchor='e', pady=(10, 0))
-        ttk.Button(bt, text='Open image', command=self.open_image, state='normal' if res.get('sheet') else 'disabled').pack(side='left')
-        ttk.Button(bt, text='Close', style='Accent.TButton', command=self.close).pack(side='left', padx=(6, 0))
-        t.protocol('WM_DELETE_WINDOW', self.close); t.bind('<Escape>', lambda e: self.close())
-        dark_titlebar(t, app.theme == 'dark')
-    def open_image(self):
-        if self.res.get('sheet'): open_path(self.res['sheet'])
-    def close(self): self.top.destroy()
 
 def cli_check(argv):
     """Shadow.exe --check scene.html|scene.blend [--only 16:9|9:16] [--times 3,25%,end-2] [--out sheet.jpg]
@@ -2156,6 +1660,8 @@ def cli(argv):
         log.error('cli failed\n%s', traceback.format_exc()); return 1
 
 def main():
+    global LOG
+    if os.environ.get('SHADOW_LOG'): LOG = os.environ['SHADOW_LOG']   # tests: keep the real ~/shadow.log untouched
     dpi_aware(); setup_log()
     if '--render' in sys.argv:
         sys.exit(cli(sys.argv[1:]))
@@ -2171,6 +1677,9 @@ def main():
         a.mainloop()
     except Exception:
         log.critical('crash\n%s', traceback.format_exc()); raise
+
+
+from dialogs import CheckWindow, NarrationDialog, YouTubeDialog   # noqa: E402,F401  (3.16: dialogs.py)
 
 if __name__ == '__main__':
     main()

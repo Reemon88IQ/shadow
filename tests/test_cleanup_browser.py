@@ -111,7 +111,7 @@ except Exception as e:
     import traceback; traceback.print_exc(); check('C4 GUI ran', False, e)
 
 # ---------------------------------------------------------------- C5 CLI
-env = dict(os.environ, TEMP=TMP, TMP=TMP)
+env = dict(os.environ, TEMP=TMP, TMP=TMP, SHADOW_LOG=os.path.join(TMP, 'cli.log'))
 cp = subprocess.run([sys.executable, os.path.join(ROOT, 'app.py'), '--selftest'], capture_output=True, text=True, timeout=180, env=env)
 check('C5 app.py --selftest: exit 0, prints "Self-test passed"', cp.returncode == 0 and 'Self-test passed' in cp.stdout, (cp.returncode, cp.stdout[-400:], cp.stderr[-300:]))
 

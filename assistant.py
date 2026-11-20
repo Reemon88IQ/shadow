@@ -236,12 +236,14 @@ class Chat:
         self.cfg_dir = cfg_dir or os.path.join(os.path.expanduser('~'), '.shadow_assistant')
         self.proc = None; self.session_id = None; self.busy = False; self.lock = threading.Lock()
         self.ready_ok = False; self.launched_extra = (); self.pending_allow = set(); self.denied = []
-        self._expected = set(); self.args = None
+        self.args = None
 
     def alive(self): return self.proc is not None and self.proc.poll() is None
 
     def _kill(self, p):
-        if p is not None: self._expected.add(id(p))
+        # marked on the process object itself: an id() of a finished Popen can be reused by the next one, which then hid a
+        # real crash as "expected" (seen in tests/test_assistant.py A7, 2 of 3 runs)
+        if p is not None: p.shadow_expected_exit = True
         kill_tree(p)
 
     def _launch(self, extra=()):
@@ -332,7 +334,7 @@ class Chat:
                     if extra and p is self.proc:   # "Allow once" was for that one turn: drop the permission again
                         self._kill(p)
         code = p.wait()
-        expected = id(p) in self._expected
+        expected = bool(getattr(p, 'shadow_expected_exit', False))
         was_busy = False
         if p is self.proc:
             with self.lock: was_busy = self.busy; self.busy = False

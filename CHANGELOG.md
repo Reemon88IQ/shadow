@@ -3,6 +3,12 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
+## 3.16
+- Inside only: app.py (2,170 lines) is split into smaller files (`scene_paths.py`, `projects.py`, `shadow_util.py`,
+  `dialogs.py`); Shadow works exactly as before. The tests no longer write to your own shadow.log.
+- **Assistant fix**: when Claude Code crashed in the Assistant panel, the error was sometimes not shown (the panel took
+  the crash for a process it had stopped itself). It is always shown now.
+
 ## 3.15
 - **About 4x faster renders**: Shadow now draws the frames in several copies of the scene at once and takes each picture
   straight from the browser, instead of one frame at a time. Measured on a real Moon Shift scene (20 s, PNG, with ffmpeg):
