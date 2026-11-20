@@ -34,7 +34,8 @@
 
 1. **Download** `Shadow-<version>-Setup.exe` from [Releases](../../releases/latest) and run it. No admin needed.
    Windows SmartScreen may warn because the app is not code-signed: choose *More info* → *Run anyway*.
-2. The setup offers to install what is missing with winget: **Google Chrome** and **ffmpeg** (both free).
+2. The setup offers to install what is missing with winget: **Google Chrome** and **ffmpeg** (both free). Without Chrome,
+   Shadow uses **Microsoft Edge**, which comes with Windows. Press **Self-test** in the app to check everything works.
 3. Open Shadow, **drop your scenes** in, press **Render**. That's it.
 
 New versions show an **Update to vX.Y** button inside the app and install themselves.
@@ -46,29 +47,31 @@ Every button, option, output file and QC check is explained in the **[user guide
 | Feature | What it does |
 |---|---|
 | **Frame-exact video** | Every frame is drawn on purpose (`seek(t)`), so the video is identical every time - no dropped frames, no screen recording. |
-| **1080p, 30 fps, with sound** | The scene's own generated sound, a song or voice file next to it (*Auto*), or silent. Loudness is set to about -14 LUFS for songs and -15 LUFS for everything else, and checked *after* encoding. |
+| **Up to 4K, 30 fps, with sound** | 1080p by default, or *1440p* / *4K* in Quality (16:9 and 9:16). The scene's own generated sound, a song or voice file next to it (*Auto*), or silent. Loudness is set to about -14 LUFS for songs and -15 LUFS for everything else, and checked *after* encoding. |
 | **YouTube + Shorts in one go** | *Format Auto*: files named `short_*` or `*-short` render 9:16, the rest 16:9 - one queue, both formats. |
 | **Quality check on every video** | A `.qc.txt` report: size, duration, black frames, freezes, silence, loudness and true peak. |
 | **Narration with captions** | Put `<scene>.wav` + `<scene>.words.json` next to the scene: the voice is mixed in and word captions appear (2D canvas scenes). |
 | **Blender scenes** | `.blend` files render through your installed Blender (Eevee, Cycles on the GPU, or Workbench) with the same sound, Shorts and QC. [Guide](docs/BLENDER.md) |
-| **Check before you render** | *Check frames* shows a contact sheet in both formats in seconds and lists page errors and frames that are not repeatable. |
+| **Check before you render** | *Check frames* shows a contact sheet in both formats in seconds and lists page errors and frames that are not repeatable. Before a render Shadow also tells you when a scene misses `window.__ready`, `seek(t)`, `DURATION` or its canvas, instead of failing later. |
 | **Batch-friendly** | *Add folder...* (or drop a folder), *Skip scenes already rendered*, a time estimate per scene and for the whole queue, and a Windows notification when it is done. |
 | **Subtitles** | A narrated video gets a `.srt` subtitle file next to it, ready to upload to YouTube. |
-| **Upload to YouTube** | *YouTube...* uploads the finished videos to your channel with the title, description, tags and *Made for Kids* from `metadata.txt` (Private by default), through your own free Google Cloud project. [Guide](docs/YOUTUBE.md) |
+| **Upload to YouTube** | *YouTube...* uploads the finished videos to your channel with the title, description, tags and *Made for Kids* from `metadata.txt` (Private by default), through your own free Google Cloud project. `metadata.txt` can also set the AI-content label (`AI: yes`), the thumbnail and a publish time (`PUBLISH:`); Shadow asks before uploading a video without one. [Guide](docs/YOUTUBE.md) |
 | **Tidy output folders** | *Folder Auto* puts songs in `Music\` and everything else in `Video\`; a Short is saved next to its video. |
-| **Fast or best** | *Capture*: Best quality (PNG, default) or Fast (JPEG, about 2x faster, very slightly softer). |
-| **Claude can run it** | A local MCP server lets Claude render, follow progress, preview frames and read QC reports for you. Works with other MCP clients too (Gemini CLI, Cursor, VS Code, ...). [Guide](docs/MCP.md) |
+| **Fast** | Several copies of the scene draw frames at the same time: about 4x faster than one at a time (measured: 20 s of 1080p in 13 s, of 4K in 44 s, RTX 5070 Ti). *Capture*: Best quality (PNG, default) or Fast (JPEG, about 1.2x faster, very slightly softer). |
+| **Projects** | *Project > Save project* keeps the list of scenes, each row's narration and all options in a `.shadow` file; open it (or drop it on Shadow) to get it all back. |
+| **Self-test** | One button renders a 2-second test video with sound and checks it, and says which step failed and what to install. |
+| **Claude can run it** | A local MCP server lets Claude render, follow progress, preview frames, read QC reports and upload to YouTube (it shows you a preview first and uploads only after your yes). Works with other MCP clients too (Gemini CLI, Cursor, VS Code, ...). [Guide](docs/MCP.md) |
 | **Assistant panel** | Ask in plain words inside the app ("render this folder and check the quality") and watch Claude do it. Runs on your Claude subscription through Claude Code, no API key. [Guide](docs/ASSISTANT.md) |
 | **Safe and tidy** | Each scene gets its own output folder; nothing is ever overwritten (`_2`, `_3`); failed renders leave a log. |
 | **Free and offline** | No Shadow account, no paid services. Nothing leaves your PC unless you press *Upload* (to your own YouTube channel). Only your scenes' own CDN links (e.g. three.js) need the internet. |
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Shadow 3.12, dark theme: a song video and its Short in the queue, Folder Auto (Music / Video)" width="49%">
-  <img src="docs/screenshot_light.png" alt="Shadow 3.12, light theme" width="49%">
+  <img src="docs/screenshot.png" alt="Shadow 3.16, dark theme: a song video and its Short in the queue, with the Project and Self-test buttons" width="49%">
+  <img src="docs/screenshot_light.png" alt="Shadow 3.16, light theme" width="49%">
 </p>
 
 <p align="center">
-  <img src="docs/screenshot_youtube.png" alt="Upload to YouTube: the rendered video and its Short with titles from metadata.txt" width="62%">
+  <img src="docs/screenshot_youtube.png" alt="Upload to YouTube: the video and its Short with titles from metadata.txt, the Publish column and the AI label, thumbnail and schedule options" width="62%">
   <br><sub><b>YouTube...</b> uploads the video and its Short with the title, description and tags from <code>metadata.txt</code> - <a href="docs/YOUTUBE.md">how to set it up</a>.</sub>
 </p>
 
@@ -84,8 +87,8 @@ flowchart LR
   E --> F["quality check<br>.qc.txt"]
 ```
 
-Shadow opens each scene in your installed Chrome (or Blender), asks for one frame at a time, and pipes the frames straight
-into ffmpeg while the sound is rendered and loudness-matched. Nothing depends on how fast your PC is: a slow machine just
+Shadow opens each scene in your installed Chrome or Edge (or Blender), lets several copies of it draw different frames at
+the same time, and pipes the frames, in order, straight into ffmpeg while the sound is rendered and loudness-matched. Nothing depends on how fast your PC is: a slow machine just
 takes longer and produces the same video.
 
 ## Make a scene
@@ -94,20 +97,22 @@ A scene is one HTML file that provides:
 
 - `<canvas id="c">`; with `?render=1` in the URL it must not autoplay
 - `window.__ready = true` once loaded, and `window.DURATION` (seconds)
-- `window.seek(t)` draws exactly the frame at time `t` (a pure function of `t`: no real-time loop, no `Math.random` - use a seeded random)
+- `window.seek(t)` draws exactly the frame at time `t` (a pure function of `t`: no real-time loop, no `Math.random` inside `seek` - use a seeded random). Shadow gives every render page the same seeded `Math.random` and a frozen `Date`, so random choices made while loading match in every copy
 - the size from the `w` and `h` URL parameters (read `h` to support 9:16)
 - optional: `window.STYLE_SOUND(k)` + the `SOUND.renderOffline` kit for generated sound, `window.THUMBNAIL_T` for an automatic thumbnail
 
 [`tests/fixtures/webgl_min.html`](tests/fixtures/webgl_min.html) is a minimal working scene. Before a long render, press
 **Check frames** (or run `python tools/check_frames.py scene.html`): a contact sheet in both formats in a few seconds, and a check that `seek(t)` is pure.
 
-**Command line:** `Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent] [--fast]`,
-`Shadow.exe --check scene.html [--only 16:9|9:16]` (contact sheet `<scene>.check.jpg` next to the scene)
+**Command line:** `Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best|1440p|4k] [--silent] [--fast]`,
+`Shadow.exe --check scene.html [--only 16:9|9:16]` (contact sheet `<scene>.check.jpg` next to the scene),
+`Shadow.exe --selftest` (renders a test video and checks it), `Shadow.exe project.shadow` (opens a project)
 
 ## Use Shadow from Claude (MCP)
 
 Claude (Claude Code, Claude Desktop or any MCP client) can render with Shadow for you - a scene or a whole folder - follow
-the progress, cancel, preview frames and read the quality report, without opening the window. It is local and free
+the progress, cancel, preview frames, read the quality report and upload the result to YouTube (preview first, then only
+after your yes), without opening the window. It is local and free
 (no API keys, nothing leaves your PC). It runs from a copy of this repository with Python, not from the installed exe:
 
 ```
@@ -122,7 +127,7 @@ Windsurf and Gemini CLI (plus an optional localhost-only HTTP mode): [docs/MCP.m
 
 **Assistant panel:** the **Assistant** button in the window opens a chat with Claude that uses these tools. It runs on your
 Claude subscription through the installed Claude Code CLI (no API key). Claude may only read files and use Shadow's tools;
-stopping a render needs your click. Details and the exact permissions: [docs/ASSISTANT.md](docs/ASSISTANT.md).
+stopping a render or uploading to YouTube needs your click. Details and the exact permissions: [docs/ASSISTANT.md](docs/ASSISTANT.md).
 
 ## FAQ
 
@@ -131,6 +136,9 @@ stopping a render needs your click. Details and the exact permissions: [docs/ASS
 
 **The top bar shows "ffmpeg (missing)" right after installing.** Sign out and in once (or restart) so Windows refreshes
 the PATH, then press *Re-check*.
+
+**I don't have Google Chrome.** Shadow uses Microsoft Edge instead (same engine, part of Windows); the top bar then says
+*Edge (Chrome not found)*.
 
 **Does it need a graphics card?** No. Scenes render on any PC; a GPU just makes three.js and Blender scenes faster.
 
@@ -151,5 +159,5 @@ Release (maintainer): double-click `publish_update.bat` (asks the new version an
 
 ## License
 
-[MIT](LICENSE) · [Privacy policy](docs/PRIVACY.md). Shadow uses Google Chrome (via Playwright), ffmpeg and, for `.blend` files, Blender - all installed
+[MIT](LICENSE) · [Privacy policy](docs/PRIVACY.md). Shadow uses Google Chrome or Microsoft Edge (via Playwright), ffmpeg and, for `.blend` files, Blender - all installed
 separately under their own licenses. Videos you make with Shadow are yours.

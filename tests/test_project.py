@@ -48,11 +48,14 @@ for bad in ('{"files": []}', '[1, 2]', 'not json'):
 
 # ---------------------------------------------------------------- P2..P4 GUI
 warn = []; app.messagebox.showwarning = lambda *x, **k: warn.append(x); app.messagebox.showerror = lambda *x, **k: warn.append(x)
+picked = []   # no real file picker may ever open on the owner's screen from this test
+for n in ('askopenfilename', 'askopenfilenames', 'asksaveasfilename', 'askdirectory'):
+    setattr(app.filedialog, n, (lambda n: lambda *x, **k: picked.append(n) or '')(n))
 try:
     a = app.App(); a.withdraw(); a.skip_done.set(True)
     a._add(A); a._add(B)
     check('P2 (setup) narration attached to the first scene', a.set_narration(A, VOICE, WORDS, style='karaoke', captions=False) is None)
-    a.preset.set('Draft (fast, 720p)'); a.fmt.set(app.FORMAT_AUTO); a.capture.set('Fast (JPEG, ~2x faster)'); a.snd.set(app.SOUNDS[3])
+    a.preset.set('Draft (fast, 720p)'); a.fmt.set(app.FORMAT_AUTO); a.capture.set(list(app.CAPTURES)[1]); a.snd.set(app.SOUNDS[3])
     a.folder_choice.set(app.FOLDER_NONE); a.out_dir.set(os.path.join(TMP, 'renders')); a.skip_done.set(False)
     saved = a.save_project(P)
     check('P2 Save project: file written, title shows the project', saved == P and os.path.isfile(P) and a.title() == 'Shadow - episode', a.title())
@@ -63,7 +66,7 @@ try:
     check('P2 narration back on its row (style, captions)', a.narr.get(A, {}).get('style') == 'karaoke' and a.narr[A].get('captions') is False
           and a.narr[A]['wav'] == VOICE, a.narr.get(A))
     check('P2 options back', (a.preset.get(), a.fmt.get(), a.capture.get(), a.snd.get(), a.folder_choice.get(), a.out_dir.get(), a.skip_done.get())
-          == ('Draft (fast, 720p)', app.FORMAT_AUTO, 'Fast (JPEG, ~2x faster)', app.SOUNDS[3], app.FOLDER_NONE, os.path.join(TMP, 'renders'), False))
+          == ('Draft (fast, 720p)', app.FORMAT_AUTO, list(app.CAPTURES)[1], app.SOUNDS[3], app.FOLDER_NONE, os.path.join(TMP, 'renders'), False))
     check('P2 rows show the narration mark and the Format Auto result', '[voice]' in a.tree.item(a.rows[A], 'values')[0]
           and a.tree.item(a.rows[B], 'values')[4] == app.format_label(True), [a.tree.item(a.rows[x], 'values') for x in (A, B)])
 
@@ -85,7 +88,21 @@ try:
     class Ev: data = '{' + P + '}'
     a.on_drop(Ev())
     check('P4 dropping a .shadow file opens it', a.files == [A, B], a.files)
+    old = os.path.join(TMP, 'old.shadow'); app.write_project(old, data)   # data still says 'Fast (JPEG, ~2x faster)' (3.16 label)
+    picked.clear(); a.open_project(old, ask=lambda *x: True)
+    check('P5 a project saved with the old JPEG label opens as the new Fast label', a.capture.get() == list(app.CAPTURES)[1], a.capture.get())
+    check('P6 a project with Sound = External file opens with its song and asks for no file (3.17 fix)', picked == []
+          and a.snd.get() == app.SOUNDS[2] and a.snd_file.get() == SONG, (picked, a.snd.get(), a.snd_file.get()))
+    a.snd.set(app.SOUNDS[0]); picked.clear(); a.snd.set(app.SOUNDS[2])
+    check('P6 choosing External file by hand still opens the picker', picked == ['askopenfilename'], picked)
     a.destroy()
+    real_cfg = app.CFG; app.CFG = os.path.join(TMP, 'cfg.json'); json.dump({'capture': 'Fast (JPEG, ~2x faster)'}, open(app.CFG, 'w'))
+    try:
+        b = app.App(); b.withdraw()
+        check('P5 settings saved with the old JPEG label keep Fast (not reset to PNG)', b.capture.get() == list(app.CAPTURES)[1]
+              and app.CAPTURES[b.capture.get()] == 'jpeg', b.capture.get())
+        b.destroy()
+    finally: app.CFG = real_cfg
 except Exception as e:
     import traceback; traceback.print_exc(); check('P GUI test ran', False, e)
 

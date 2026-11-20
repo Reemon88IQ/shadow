@@ -45,9 +45,11 @@ OUTDATED = 'This scene is outdated and does not support 9:16'
 
 
 SKIPPED_SCENE_CHECK = 'Skipped (scene check)'   # Render: the scene misses window.__ready / seek / DURATION / canvas#c and the user chose No
-# Capture: how each frame leaves the browser (render_core.render(capture=...)). PNG = lossless; JPEG = about 2x faster render,
-# final video very slightly softer (measured SSIM 0.986 -> 0.983 on a 1080p scene) and ~1.7x larger file.
-CAPTURES = {'Best quality (PNG)': 'png', 'Fast (JPEG, ~2x faster)': 'jpeg'}
+# Capture: how each frame leaves the browser (render_core.render(capture=...)). PNG = lossless; JPEG = final video very slightly
+# softer (measured SSIM 0.986 -> 0.983 on a 1080p scene) and ~1.2x larger file. Speed gap measured again after the 3.15
+# parallel capture (end to end, real Moon Shift scene): 1080p 22 -> 18 ms/frame, 4K 73 -> 58 = about 1.2x (it was ~2x).
+CAPTURES = {'Best quality (PNG)': 'png', 'Fast (JPEG, ~1.2x faster)': 'jpeg'}
+OLD_CAPTURE_LABELS = {'Fast (JPEG, ~2x faster)': 'Fast (JPEG, ~1.2x faster)'}   # settings / projects saved by 3.16 and older
 
 log = logging.getLogger('shadow')
 def close_log():
@@ -536,7 +538,7 @@ class App(Root):
         self._cur_left = None  # (path, seconds left) of the file rendering now
         self.check_thread = None; self.check_results = []; self.check_kw = {}   # Check frames (check_kw: tests pass Chrome options)
         f = cfg.get('format'); self.fmt = tk.StringVar(value=f if f in FORMAT_CHOICES else '16:9 (YouTube)')
-        c = cfg.get('capture'); self.capture = tk.StringVar(value=c if c in CAPTURES else next(iter(CAPTURES)))
+        c = OLD_CAPTURE_LABELS.get(cfg.get('capture'), cfg.get('capture')); self.capture = tk.StringVar(value=c if c in CAPTURES else next(iter(CAPTURES)))
         self.folders = [safe_rel_folder(x) for x in cfg.get('folders', DEFAULT_FOLDERS) if safe_rel_folder(x)] or list(DEFAULT_FOLDERS)
         fc = cfg.get('folder', FOLDER_AUTO); self.folder_choice = tk.StringVar(value=fc if fc in self.folder_values() else FOLDER_AUTO)
         e = cfg.get('blender_engine'); self.bl_engine = tk.StringVar(value=e if e in BLENDER_ENGINES else BLENDER_ENGINES[0])
@@ -868,10 +870,16 @@ class App(Root):
             if a is None: return []
             if a: self.clear()
         o = data['options']
-        for var, key, ok in ((self.preset, 'quality', rc.PRESETS), (self.fmt, 'format', FORMAT_CHOICES), (self.snd, 'sound', SOUNDS),
-                             (self.capture, 'capture', CAPTURES), (self.bl_engine, 'blender', BLENDER_ENGINES)):
-            if o.get(key) in ok: var.set(o[key])
+        if o.get('capture') in OLD_CAPTURE_LABELS: o['capture'] = OLD_CAPTURE_LABELS[o['capture']]   # a project saved by 3.16 or older
+        # the song file first, and Sound without its file picker: a project with "External file..." already names its file
+        # (3.17 fix: opening such a project popped up the picker)
         if o.get('sound_file') is not None: self.snd_file.set(o['sound_file'])
+        self._quiet_sound = True
+        try:
+            for var, key, ok in ((self.preset, 'quality', rc.PRESETS), (self.fmt, 'format', FORMAT_CHOICES), (self.snd, 'sound', SOUNDS),
+                                 (self.capture, 'capture', CAPTURES), (self.bl_engine, 'blender', BLENDER_ENGINES)):
+                if o.get(key) in ok: var.set(o[key])
+        finally: self._quiet_sound = False
         if o.get('save_to'): self.out_dir.set(o['save_to'])
         if 'skip_done' in o: self.skip_done.set(bool(o['skip_done']))
         fc = o.get('folder')
@@ -1034,7 +1042,7 @@ class App(Root):
 
     # ------------------------------------------------------------------ options
     def on_sound(self, *_):
-        if self.snd.get().startswith('External'):
+        if self.snd.get().startswith('External') and not getattr(self, '_quiet_sound', False):
             f = filedialog.askopenfilename(filetypes=[('Audio', '*.wav *.mp3 *.m4a *.aac *.flac *.ogg')])
             if f: self.snd_file.set(f)
             elif not self.snd_file.get(): self.snd.set(SOUNDS[0])

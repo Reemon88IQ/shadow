@@ -264,6 +264,7 @@ srv.shutdown()
 # ---------------------------------------------------------------- the YouTube... dialog (upload faked)
 try:
     import app
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import no_dialogs; no_dialogs.block(app)   # never a real window on the screen
     real_log = app.LOG; stat = lambda p: (os.path.getsize(p), os.path.getmtime(p)) if os.path.isfile(p) else None; real_before = stat(real_log)
     app.LOG = os.path.join(tmp, 'shadow.log'); app.LOG_DIR = os.path.join(tmp, 'logs')   # never the real ~/shadow.log
     for h in list(app.log.handlers): app.log.removeHandler(h)

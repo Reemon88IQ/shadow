@@ -23,13 +23,22 @@ all, the server is not connected: say so and point to `docs/MCP.md` (do not chan
 | Stop | `shadow_cancel(job_id)` = Stop queue; `current_only=True` = Cancel current (the queue goes on) |
 | Quality report | `shadow_qc(mp4 or folder)`; `rerun=True` checks an mp4 again |
 | What was made | `shadow_outputs(job_id=...)` or `shadow_outputs(path=folder)` |
+| Which YouTube channels are signed in | `shadow_youtube` (Shadow 3.14+) |
+| What an upload would send | `shadow_upload_preview(video, scene=..., ...)` - sends nothing |
+| Upload to YouTube | `shadow_upload(same arguments)` -> upload_id, then `shadow_upload_progress(upload_id, wait_seconds=50)` |
+| Stop an upload | `shadow_upload_cancel(upload_id)` |
+
+Uploading publishes to the user's channel: ALWAYS call `shadow_upload_preview` first, show the channel, title, privacy,
+AI label, publish time and thumbnail, and call `shadow_upload` only after the user says yes to that preview. Uploads are
+Private by default; until the user's Google project passes YouTube's API audit every API upload stays Private. A channel
+is signed in once in the Shadow window (YouTube... -> Sign in...): never ask for a password.
 
 ## Settings (same names as the GUI)
-- `quality`: `best` (1080p, 64 samples, default) | `good` | `draft` (720p, quick looks).
+- `quality`: `best` (1080p, 64 samples, default) | `good` | `draft` (720p, quick looks) | `1440p` | `4k` (Shadow 3.15+).
 - `format`: `auto` (default: `short_*`, `*-short`, `*_short`, `* short`, `...shorts` -> 9:16, the rest 16:9) | `16:9` | `9:16`.
 - `sound`: `auto` (default: `<scene>.mp3/.wav/.m4a/.flac/.ogg/.aac` next to the scene, else the scene's own sound + warning)
   | `generated` | `none` | `file` + `audio_file`.
-- `capture`: `png` (lossless, default) | `jpeg` (about 2x faster frames, slightly softer, bigger file - fine for drafts).
+- `capture`: `png` (lossless, default) | `jpeg` (about 1.2x faster since 3.15, slightly softer, bigger file - fine for drafts).
 - `narration`: `auto` (default: `<scene>.wav` + `<scene>.words.json` next to the scene are attached, style pop; sound is
   forced to generated) | `off`. Scenes with narration built in show `[voice embedded]` and are never narrated twice.
 - `outdated`: `skip` (default) | `render` - 9:16 scenes that do not read `get('h')`. The GUI asks; here ask the user if it matters.

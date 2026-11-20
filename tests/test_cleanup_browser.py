@@ -13,6 +13,7 @@ sys.path.insert(0, ROOT); sys.path.insert(0, os.path.dirname(__file__))
 try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 except Exception: pass
 import render_core as rc, app
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import no_dialogs; no_dialogs.block(app)   # never a real window on the screen
 from regression import KW
 
 fails = []

@@ -29,8 +29,8 @@ your Windows user only (no admin), to `%LOCALAPPDATA%\Shadow`, with a Desktop an
 in English or Arabic. Windows SmartScreen may warn because the installer is not code-signed: choose *More info* → *Run anyway*
 (the release page lists the file's SHA-256 so you can check it).
 
-**What Shadow needs.** Google Chrome (Shadow draws your scenes in it) and ffmpeg (encoding and the quality check). If one is
-missing, the installer offers to install it with winget, and the top bar in Shadow shows it in red with an
+**What Shadow needs.** Google Chrome (Shadow draws your scenes in it; without Chrome it uses Microsoft Edge, which comes
+with Windows) and ffmpeg (encoding and the quality check). If one is missing, the installer offers to install it with winget, and the top bar in Shadow shows it in red with an
 *Install missing* button. Blender is optional and only needed for `.blend` scenes.
 
 **Update.** About 2 seconds after Shadow opens it asks GitHub for the latest release. When a newer one exists, the button in
@@ -50,8 +50,10 @@ logs and videos are kept. The update waits while a render is running.
 | **Check for updates** | Asks GitHub for a newer version (see above). Becomes **Update to vX.Y** when there is one. |
 | **Light / Dark** | Switches the theme. Shadow follows Windows until you press it, then remembers your choice. |
 | **Assistant** | Opens the chat panel on the right (see [Assistant panel](#assistant-panel-and-claude)). |
-| **Chrome · ffmpeg · playwright · Blender** | Green = found, red = missing. Blender is only needed for `.blend` files. |
+| **Project** | *Open project...*, *Save project*, *Save project as...* (see [Projects](#projects)). |
+| **Chrome · ffmpeg · playwright · Blender** | Green = found, red = missing. Blender is only needed for `.blend` files. Without Chrome it says *Edge (Chrome not found)* and renders with Edge. |
 | **Re-check** | Looks again (for example after installing ffmpeg). |
+| **Self-test** | Renders a 2-second test video with a tone and checks it (browser, ffmpeg, frames, sound, quality check); the message says which step failed and what to install. |
 | **Install missing** | Installs what is missing with winget in a new window. Restart Shadow afterwards. |
 
 ## The scenes table
@@ -91,7 +93,7 @@ preview it, and press Delete to remove it.
 | **Quality** | *Best (1080p, 64 samples)* - the default for uploads. *Good (1080p, 24 samples)* - faster, slightly less smooth effects. *Draft (fast, 720p)* - quick looks only. *1440p* and *4K* - sharper uploads (a 1440p or 4K upload is streamed by YouTube with a better codec, also at 1080p); a 4K render takes about 3x as long as 1080p and the file is about 3x bigger. "Samples" is passed to the scene; scenes use it for antialiasing and effects. |
 | **Format** | *16:9 (YouTube)*, *9:16 (Shorts)*, or *Auto (by file name)* - decided per file (see [Shorts](#shorts-916)). |
 | **Sound** | *Generated (built into the scene)*, *None (silent)*, *External file...*, *Auto (file next to scene)* (see [Sound](#sound)). |
-| **Capture** | *Best quality (PNG)* - lossless frames, the default. *Fast (JPEG, ~2x faster)* - measured 2.7x faster frame stage on a 1080p scene, a very slightly softer picture and a ~1.7x larger file. Good for drafts. |
+| **Capture** | *Best quality (PNG)* - lossless frames, the default. *Fast (JPEG, ~1.2x faster)* - a very slightly softer picture and a ~1.2x larger file (measured end to end: 1080p 22 -> 18 ms per frame). Since 3.15 PNG is fast too, so Fast is mostly for drafts. |
 | **Blender** | For `.blend` files only: *Scene setting*, *Eevee*, *Cycles (GPU)*, *Workbench (fast)*. |
 | **Save to** | The folder where every scene gets its own subfolder (see [What you get](#what-you-get)). |
 | **Open folder when done** | Opens the output folder after the batch. |
@@ -104,9 +106,12 @@ preview it, and press Delete to remove it.
 the next one). **Stop queue** stops everything. A cancelled or failed render never leaves a half-written video: Shadow
 writes `<name>.part.mp4` and only renames it when everything succeeded.
 
-How it works: Shadow serves the scene's folder on a local address, opens it in your installed Chrome (in the background),
-renders the sound first, then asks the scene for one frame at a time (`seek(t)`) and pipes the frames straight into ffmpeg,
-which encodes while the next frames are drawn. Nothing depends on how fast your PC is - a slow PC takes longer and makes
+How it works: Shadow serves the scene's folder on a local address, opens it in your installed Chrome or Edge (in the
+background), renders the sound first, then lets several copies of the scene draw different frames at the same time
+(`seek(t)`, about 4x faster than one copy) and pipes the frames, in order, straight into ffmpeg, which encodes while the
+next frames are drawn. Because `seek(t)` must draw exactly the moment `t`, the copies give the same video as one would;
+a scene that keeps a little state between frames can differ by an invisible amount. `SHADOW_CAPTURE_WORKERS=1` (an
+environment variable) renders with one copy, exactly like Shadow 3.14 and older. Nothing depends on how fast your PC is - a slow PC takes longer and makes
 the same video.
 
 ## What you get
@@ -205,8 +210,11 @@ Blender in the background (no window) with the engine you pick under **Blender**
 ## Upload to YouTube
 
 **YouTube...** (next to *Open log*) uploads the videos you just rendered to one of your channels, with the title,
-description, tags and *Made for Kids* from a `metadata.txt` next to the video or the scene. Sign in once per channel in
-your browser; uploads are Private by default. It needs a free one-time Google Cloud setup, and until that project passes
+description, tags and *Made for Kids* from a `metadata.txt` next to the video or the scene. `AI: yes` sets YouTube's
+AI-content label, the thumbnail Shadow saved (or `THUMBNAIL:`) is set on the video, and a `PUBLISH:` date and time
+schedules it. A video added with *Add video...* uses the metadata.txt of its scene in the list; the file is read again
+when you press Upload, selecting a row shows which one it uses, and Shadow asks before uploading a video without one.
+Sign in once per channel in your browser; uploads are Private by default. It needs a free one-time Google Cloud setup, and until that project passes
 YouTube's API audit, uploads stay Private: [YOUTUBE.md](YOUTUBE.md).
 
 ## Assistant panel and Claude
@@ -216,7 +224,7 @@ Press **Assistant** to open a chat on the right. Ask in plain words - "render th
 starts over, **Folder...** chooses the folder Claude may read.
 
 It uses **your own Claude subscription through the installed Claude Code** (no API key, no extra cost). Claude can only
-read files in that folder and use Shadow's tools; stopping a render needs your **Allow once**. Setup and the exact
+read files in that folder and use Shadow's tools; stopping a render or uploading to YouTube needs your **Allow once**. Setup and the exact
 permissions: [ASSISTANT.md](ASSISTANT.md).
 
 The same tools are available to Claude Code, Claude Desktop and other AI apps that support MCP (Cursor, VS Code,
@@ -225,13 +233,16 @@ Windsurf, Gemini CLI): [MCP.md](MCP.md).
 ## Command line
 
 ```
-Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best] [--silent] [--fast] [--engine ...]
+Shadow.exe --render scene.html out.mp4 [--vertical] [--preset draft|good|best|1440p|4k] [--silent] [--fast] [--engine ...]
 Shadow.exe --check scene.html [--only 16:9|9:16] [--times ...] [--out sheet.jpg] [--engine ...]
+Shadow.exe --selftest
+Shadow.exe project.shadow
 ```
 
 `--render` writes exactly the path you give (no scene folder) plus its QC report; the exit code is 0 when the video has
 the expected size. `--fast` = Fast (JPEG) capture. `--engine` (for `.blend`): `scene`, `eevee`, `cycles` or `workbench`.
-`--check` makes the contact sheet and purity check without rendering.
+`--check` makes the contact sheet and purity check without rendering. `--selftest` renders the built-in test video and
+prints each step (exit code 0 = all fine). A `.shadow` file opens the window with that project.
 
 ## Settings, logs and privacy
 

@@ -3,6 +3,21 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
+## 3.17
+- **Correct colours on YouTube**: videos are now converted and tagged as BT.709 (what YouTube and players use for HD).
+  Before, the colours were converted the older BT.601 way and left untagged, so reds and greens shifted slightly once
+  uploaded (measured: pure red was stored as luma 81 instead of 63). No speed cost (measured at 1080p: PNG 22.2 -> 21.8,
+  JPEG 18.4 -> 18.2 ms per frame).
+- **Opening a project no longer asks for a song file**: a project saved with Sound = *External file...* popped up the
+  file picker when opened, although it already names its song. Choosing External file by hand still asks.
+- **Random layouts stay the same in every copy**: since 3.15 several copies of a scene draw frames at once. A scene that
+  uses `Math.random()` or `Date.now()` while loading now gets the same values in every copy (and in every render), so the
+  video cannot flicker between copies. Check frames shows the same.
+- **Capture label fixed**: *Fast (JPEG)* now says *~1.2x faster* (measured after 3.15 made PNG fast too; it said ~2x). A
+  Fast choice saved in your settings or in a project is kept.
+- Docs: README, user guide and the Claude skill describe everything from 3.13-3.16 (4K, faster renders, projects, Edge,
+  Self-test, AI label / thumbnail / schedule, uploads from Claude); new screenshots.
+
 ## 3.16
 - Inside only: app.py (2,170 lines) is split into smaller files (`scene_paths.py`, `projects.py`, `shadow_util.py`,
   `dialogs.py`); Shadow works exactly as before. The tests no longer write to your own shadow.log.

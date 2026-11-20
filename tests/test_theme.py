@@ -6,6 +6,7 @@ sys.path.insert(0, ROOT)
 try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 except Exception: pass
 import app
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import no_dialogs; no_dialogs.block(app)   # never a real window on the screen
 from tkinter import ttk
 
 tmp = tempfile.mkdtemp(prefix='shadow_theme_')

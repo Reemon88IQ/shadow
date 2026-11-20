@@ -1,5 +1,5 @@
 """Shadow rendering engine: HTML scene -> frames -> audio -> MP4. No GUI code here."""
-VERSION = "3.16"
+VERSION = "3.17"
 import base64, collections, functools, urllib.parse, http.server, os, shutil, subprocess, sys, tempfile, threading, time, wave, array
 
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -34,8 +34,43 @@ LOUDNORM = loudnorm_af()         # -15 (kept for callers that do not choose)
 EXT_AUDIO_AF = ext_audio_af()
 
 def x264_args():
-    """Video encoder settings (crf 16 = visually lossless for these scenes; preset medium: about 2x faster than slow)."""
-    return ['-c:v', 'libx264', '-preset', 'medium', '-crf', '16', '-pix_fmt', 'yuv420p']
+    """Video encoder settings (crf 16 = visually lossless for these scenes; preset medium: about 2x faster than slow).
+    3.17: the stream is tagged BT.709, limited range - what YouTube and players assume for HD. Before, the frames were
+    converted with ffmpeg's default BT.601 matrix and left untagged (measured: pure red came out as Y=81; BT.709 gives 63),
+    so reds and greens shifted slightly on YouTube. Pair it with video_filter(), which does the matching conversion."""
+    return ['-c:v', 'libx264', '-preset', 'medium', '-crf', '16', '-pix_fmt', 'yuv420p',
+            '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv']
+
+def video_filter():
+    """-vf for captured frames (PNG = RGB, JPEG = full-range BT.601 YUV): even size (yuv420p needs it; an outdated scene can
+    give odd sizes), then ONE conversion to BT.709 limited-range yuv420p, so the pixels match x264_args()'s tags."""
+    # setparams: ffmpeg 9 takes primaries / transfer from the frames, not from -color_primaries / -color_trc (measured: both
+    # came out 'unknown' without it), so the frames carry all four BT.709 values themselves
+    # format=rgb24 first: JPEG frames arrive as YUV; converting them to BT.709 straight from YUV moved them away from the PNG
+    # result (measured on tests/fixtures/webgl_min.html: JPEG vs PNG mean difference 2.33; through RGB 1.02; 3.16 had 0.71).
+    # test_capture.py C2 (limit 2.0) guards this. PNG frames are RGB already, so for them the step costs nothing.
+    return ('pad=ceil(iw/2)*2:ceil(ih/2)*2,format=rgb24,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,'
+            'setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv')
+
+# Injected into every render / frame-check page before the scene's own scripts (3.17). The scene is drawn by several copies
+# at once (parallel capture), so anything random at setup must come out the same in every copy, or the video flickers
+# between copies. Math.random becomes one fixed-seed generator (mulberry32) and Date is frozen at a fixed instant (new Date()
+# with no arguments and Date.now(); dates the scene builds itself are untouched). performance.now stays real: loaders use it
+# for timeouts, and a scene that uses it inside seek(t) is caught by Check frames' redraw (purity) test.
+RENDER_SEED, RENDER_EPOCH_MS = 0x5AD0, 1767225600000   # 2026-01-01T00:00:00Z
+RENDER_INIT_JS = '''(() => {
+  if (window.__shadowFixed) return; window.__shadowFixed = true;
+  let s = %d >>> 0;
+  Math.random = function () { s = (s + 0x6D2B79F5) >>> 0; let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const RealDate = Date, FIXED = %d;
+  const FixedDate = new Proxy(RealDate, {
+    construct(target, args, nt) { return Reflect.construct(target, args.length ? args : [FIXED], nt); },
+    apply() { return new RealDate(FIXED).toString(); },
+    get(target, key) { return key === 'now' ? () => FIXED : Reflect.get(target, key); },
+  });
+  window.Date = FixedDate;
+})();''' % (RENDER_SEED, RENDER_EPOCH_MS)
 
 def find_ffmpeg():
     return shutil.which('ffmpeg')
@@ -346,6 +381,7 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
             if info is not None: info['browser'] = browser_name(channel) if channel else 'bundled Chromium'
             b = p.chromium.launch(**kw)
             pg = b.new_page(viewport={'width': 1280, 'height': 720})
+            pg.add_init_script(RENDER_INIT_JS)   # same Math.random / Date in every copy of the scene
             errs = []
             pg.on('pageerror', lambda e: errs.append(str(e)))
             progress('load', 0, 1)
@@ -394,7 +430,7 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
             cmd = [ffmpeg, '-y', '-hide_banner', '-nostats', '-loglevel', 'error',
                    '-f', 'image2pipe', '-c:v', CAPTURE_CODEC[capture], '-framerate', str(fps), '-i', '-']
             if sound != 'none': cmd += ['-i', aud]
-            cmd += ['-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', *x264_args()]   # yuv420p needs even sizes (an outdated scene can give odd ones)
+            cmd += ['-vf', video_filter(), *x264_args()]   # even size + BT.709 conversion, tagged to match
             if sound != 'none': cmd += ['-c:a', 'aac', '-b:a', '192k', '-shortest']
             cmd += ['-movflags', '+faststart', '-f', 'mp4', part]
             proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=NOWIN)
@@ -424,6 +460,7 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
                 pages = [pg]
                 for _ in range(nw - 1):   # more copies of the scene, each in its own renderer process (own browser context)
                     px = b.new_context(viewport={'width': 1280, 'height': 720}).new_page()
+                    px.add_init_script(RENDER_INIT_JS)
                     px.on('pageerror', lambda e: errs.append(str(e)))
                     px.goto(f'http://127.0.0.1:{port}/{urllib.parse.quote(page)}?render=1&s={samples}&w={cw}&h={ch}')
                     px.wait_for_function('window.__ready===true', timeout=READY_TIMEOUT_MS)

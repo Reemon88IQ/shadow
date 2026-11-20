@@ -163,7 +163,7 @@ def render(blend_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel
         cmd = [ffmpeg, '-y', '-hide_banner', '-nostats', '-loglevel', 'error',
                '-f', 'image2pipe', '-c:v', rc.CAPTURE_CODEC[capture], '-framerate', str(fps), '-i', '-']
         if sound != 'none': cmd += ['-i', aud]
-        cmd += ['-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', *rc.x264_args()]
+        cmd += ['-vf', rc.video_filter(), *rc.x264_args()]   # same BT.709 conversion + tags as render_core
         if sound != 'none': cmd += ['-c:a', 'aac', '-b:a', '192k', '-shortest']
         cmd += ['-movflags', '+faststart', '-f', 'mp4', part]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=rc.NOWIN)

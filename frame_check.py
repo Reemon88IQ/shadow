@@ -56,6 +56,7 @@ def check(scene, times=None, out=None, only=None, engine='scene', cancel=None, c
                 for W, H, name in sizes:
                     if cancel is not None and cancel.is_set(): break
                     pg = b.new_page(viewport={'width': 1280, 'height': 720}); errs = []
+                    pg.add_init_script(rc.RENDER_INIT_JS)   # the sheet shows what the render will draw (same seed / Date)
                     pg.on('pageerror', lambda e: errs.append(str(e)))
                     pg.goto(f'http://127.0.0.1:{srv.server_address[1]}/{urllib.parse.quote(os.path.basename(scene))}?render=1&s=4&w={W}&h={H}')
                     try: pg.wait_for_function('window.__ready===true', timeout=120000)
