@@ -1,5 +1,5 @@
 """Shadow rendering engine: HTML scene -> frames -> audio -> MP4. No GUI code here."""
-VERSION = "3.14"
+VERSION = "3.15"
 import base64, collections, functools, urllib.parse, http.server, os, shutil, subprocess, sys, tempfile, threading, time, wave, array
 
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -8,6 +8,8 @@ PRESETS = {
     'Draft (fast, 720p)': dict(w=1280, samples=8),
     'Good (1080p, 24 samples)': dict(w=1920, samples=24),
     'Best (1080p, 64 samples)': dict(w=1920, samples=64),
+    '1440p (QHD, 64 samples)': dict(w=2560, samples=64),   # 3.15: YouTube streams 1440p/4K uploads with its better codec
+    '4K (UHD, 64 samples)': dict(w=3840, samples=64),      # (VP9/AV1), also when watched at 1080p
 }
 
 # External audio (Sound = External file / Auto song): loudness-match to -15 LUFS, then a true-peak limiter so the track
@@ -220,15 +222,88 @@ def clean_stale_temp(base=None, min_age_s=600, now=None):
 
 READY_TIMEOUT_MS = 180000   # how long a scene may take to set window.__ready (big textures / fonts over a slow line)
 
+# ---------------------------------------------------------------- parallel frame capture (3.15)
+# Measured on a real Moon Shift three.js scene (RTX 5070 Ti, 16 cores, 2026-11-20), ms per frame, capture side only:
+#   one page + toDataURL (old):  1080p PNG 75 | JPEG 25 | 1440p PNG 123 | 4K PNG 260 | JPEG 91
+#   4 pages + toBlob + binary POST: 1080p PNG 17 (3 pages) | JPEG 5.6 | 1440p PNG 23 | 4K PNG 50 | JPEG 21
+# Encoding (toDataURL) was ~55% and the base64 transfer ~45%; drawing (seek) ~0. PNG frames are byte-identical to the
+# old path with 1 page; with several pages a scene that keeps a little state between frames can differ invisibly (real
+# Moon Shift scene: PSNR >= 46 dB, 54 dB average; the 1-page path and 3.13 give the same bytes). Chrome keeps blobs until GC: without window.gc() every 30 frames, fetch failed after a few hundred 1080p frames.
+CAPTURE_INFLIGHT = 4      # frames per page being encoded / sent at the same time
+CAPTURE_STALL_S = 120     # no new frame for this long = stop with an error (never hang a queue)
+CAPTURE_LOOP_JS = '''(o) => {
+  window.__shadow = {done: false, err: null, stop: false, fails: 0};
+  const c = document.getElementById('c'), busy = new Set();
+  const send = async (b, i) => {
+    for (let t = 0; ; t++) {
+      try { const r = await fetch(o.url, {method: 'POST', body: b, headers: {'X-Frame': String(i)}});
+            if (r.ok || r.status === 409) return; throw new Error('HTTP ' + r.status); }
+      catch (e) { window.__shadow.fails++; if (t >= 5 || window.__shadow.stop) throw e; await new Promise(r => setTimeout(r, 100 * (t + 1))); }
+    }
+  };
+  (async () => {
+    let k = 0;
+    for (let i = o.start; i < o.n; i += o.step) {
+      if (window.__shadow.stop) return;
+      if (++k % 30 === 0 && window.gc) window.gc();
+      window.seek(i / o.fps);
+      const p = new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('the canvas gave no image (too large for the GPU?)')), o.mime, o.q === null ? undefined : o.q))
+        .then(b => send(b, i));
+      busy.add(p); p.then(() => busy.delete(p), () => {});
+      if (busy.size >= o.inflight) await Promise.race(busy);
+    }
+    await Promise.all(busy);
+  })().then(() => { window.__shadow.done = true; }, e => { window.__shadow.err = String(e && e.message || e); });
+}'''
+
+def capture_workers(workers='auto', n_frames=None):
+    """How many pages capture frames. 'auto' = 4 on 8+ cores, 2 on 4+, else 1 (measured: 3-4 pages give 4-5x); an int is
+    used as given (0 = the original single-page path). Never more pages than frames."""
+    if workers in (None, 'auto') and os.environ.get('SHADOW_CAPTURE_WORKERS', '').strip().isdigit():
+        workers = int(os.environ['SHADOW_CAPTURE_WORKERS'])   # 1 = frames byte-identical to 3.13 (one page), 0 = the old path
+    if workers in (None, 'auto'):
+        c = os.cpu_count() or 2
+        workers = 4 if c >= 8 else 2 if c >= 4 else 1
+    workers = max(0, int(workers))
+    return min(workers, n_frames) if n_frames else workers
+
+class _FrameSink:
+    """Receives the POSTed frames (any order, from several pages) and writes them to ffmpeg's stdin in frame order.
+    put() blocks while a frame is more than `window` ahead of the next one to write (back-pressure: the pages wait)."""
+    def __init__(self):
+        self.path = '/__shadow_frame/' + os.urandom(8).hex(); self.url = self.path
+        self.cond = threading.Condition(); self.buf = {}; self.written = 0; self.n = 0; self.out = None
+        self.window = 8; self.error = None; self.stopped = False
+    def open(self, out, n, window=8):
+        with self.cond: self.out, self.n, self.window, self.written, self.buf, self.stopped = out, n, max(2, window), 0, {}, False
+    def stop(self):
+        with self.cond: self.stopped = True; self.cond.notify_all()
+    def put(self, i, data):
+        """-> HTTP status: 204 stored/written, 409 stopped or not needed, 500 ffmpeg failed."""
+        with self.cond:
+            if self.out is None or not 0 <= i < self.n: raise ValueError(i)
+            while not self.stopped and self.error is None and i >= self.written + self.window: self.cond.wait(0.5)
+            if self.stopped: return 409
+            if self.error is not None: return 500
+            if i < self.written or i in self.buf: return 409
+            self.buf[i] = data
+            while self.written in self.buf:
+                try: self.out.write(self.buf.pop(self.written))
+                except OSError as e: self.error = e; self.cond.notify_all(); return 500
+                self.written += 1
+            self.cond.notify_all(); return 204
+
 def _part_path(out_mp4):
     """The file ffmpeg writes while rendering; renamed to out_mp4 only when everything succeeded."""
     root, ext = os.path.splitext(os.path.abspath(out_mp4))
     return f'{root}.part{ext or ".mp4"}'
 
-def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=None, max_frames=None, channel='auto', extra_args=(), vertical=False, sound='generated', audio_file=None, info=None, capture='png', lufs=None):
+def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=None, max_frames=None, channel='auto', extra_args=(), vertical=False, sound='generated', audio_file=None, info=None, capture='png', lufs=None, workers='auto'):
     """progress(stage, done, total[, eta]); stages in order: load, audio, frames, encode, done. cancel: threading.Event.
     sound: 'generated' | 'none' | 'file' (audio_file). capture: 'png' (lossless, default) | 'jpeg' (Fast capture).
     lufs: loudness target of the sound (None = DEFAULT_LUFS -15; songs MUSIC_LUFS -14).
+    workers: frame capture pages ('auto' = capture_workers(); 0 = the original single-page path). Each page is its own copy of
+    the scene and draws every nw-th frame (seek(t) is pure by the contract), so frames come out identical, just faster.
     info: optional dict, filled with {'sound': the mode actually used, 'scene_duration', 'duration', 'capture', 'lufs'}.
     Frames are piped straight into ffmpeg (no frame files on disk) and encoded while the scene renders; the mp4 is written
     as <name>.part.mp4 and renamed to out_mp4 only on success, so a cancelled or failed render leaves no file behind."""
@@ -244,14 +319,28 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
     cw, ch = (round(w * 9 / 16), w) if vertical else (w, round(w * 9 / 16))
     tmp = tempfile.mkdtemp(prefix=TEMP_PREFIXES[0]); mark_temp_owner(tmp)
     part = _part_path(out_mp4); proc = None
+    sink = _FrameSink()
     class Q(http.server.SimpleHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'   # keep-alive: a few connections for thousands of frame POSTs (no port exhaustion)
         def log_message(self, *a, **k): pass
-    srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Q, directory=d))
+        def do_POST(self):
+            n = int(self.headers.get('Content-Length') or 0); data = self.rfile.read(n)
+            if self.path != sink.path: self.send_response(404)
+            else:
+                try: code = sink.put(int(self.headers.get('X-Frame', '-1')), data)
+                except ValueError: code = 400
+                self.send_response(code)
+            self.send_header('Content-Length', '0'); self.end_headers()
+    class S(http.server.ThreadingHTTPServer):
+        request_queue_size = 64; daemon_threads = True
+        def handle_error(self, request, client_address):   # the browser closing a connection at the end / on cancel is normal
+            if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)): super().handle_error(request, client_address)
+    srv = S(('127.0.0.1', 0), functools.partial(Q, directory=d))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     port = srv.server_address[1]
     try:
         with sync_playwright() as p:
-            kw = dict(args=['--ignore-gpu-blocklist', '--enable-gpu-rasterization', *extra_args])
+            kw = dict(args=['--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--js-flags=--expose-gc', *extra_args])
             channel = resolve_channel(channel)
             if channel: kw['channel'] = channel
             if info is not None: info['browser'] = browser_name(channel) if channel else 'bundled Chromium'
@@ -319,14 +408,52 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
                 return RuntimeError(ffmpeg_message(list(err_lines), ret))
             js = CAPTURE_JS[capture]
             t0 = time.time()
-            for i in range(n):
-                if cancel is not None and cancel.is_set(): raise Cancelled()
-                d64 = pg.evaluate(f'(()=>{{window.seek({i}/{fps});return document.getElementById("c").toDataURL({js})}})()')
-                try:
-                    proc.stdin.write(base64.b64decode(d64.split(',')[1]))
-                except OSError:   # ffmpeg stopped (bad frame, disk full...): report its own message
-                    ret = proc.wait(); reader.join(5); raise ffmpeg_error(ret)
-                progress('frames', i + 1, n, (time.time() - t0) / (i + 1) * (n - i - 1))
+            nw = capture_workers(workers, n)
+            if info is not None: info['workers'] = nw
+            if nw == 0:   # the original one-page path: one evaluate per frame, base64 back to Python
+                for i in range(n):
+                    if cancel is not None and cancel.is_set(): raise Cancelled()
+                    d64 = pg.evaluate(f'(()=>{{window.seek({i}/{fps});return document.getElementById("c").toDataURL({js})}})()')
+                    try:
+                        proc.stdin.write(base64.b64decode(d64.split(',')[1]))
+                    except OSError:   # ffmpeg stopped (bad frame, disk full...): report its own message
+                        ret = proc.wait(); reader.join(5); raise ffmpeg_error(ret)
+                    progress('frames', i + 1, n, (time.time() - t0) / (i + 1) * (n - i - 1))
+            else:   # parallel capture: nw pages draw frames k, k+nw, ... and POST them (binary) to this server, in order to ffmpeg
+                sink.open(proc.stdin, n, window=nw * 6)
+                pages = [pg]
+                for _ in range(nw - 1):   # more copies of the scene, each in its own renderer process (own browser context)
+                    px = b.new_context(viewport={'width': 1280, 'height': 720}).new_page()
+                    px.on('pageerror', lambda e: errs.append(str(e)))
+                    px.goto(f'http://127.0.0.1:{port}/{urllib.parse.quote(page)}?render=1&s={samples}&w={cw}&h={ch}')
+                    px.wait_for_function('window.__ready===true', timeout=READY_TIMEOUT_MS)
+                    pages.append(px)
+                mime, q = ('image/png', None) if capture == 'png' else ('image/jpeg', 0.98)
+                for k, px in enumerate(pages):
+                    px.evaluate(CAPTURE_LOOP_JS, dict(start=k, step=nw, n=n, inflight=CAPTURE_INFLIGHT, url=sink.url, fps=fps, mime=mime, q=q))
+                last_poll = 0; last_done = 0; last_change = time.time()
+                while True:
+                    done = sink.written
+                    if done != last_done: last_done, last_change = done, time.time(); progress('frames', done, n, (time.time() - t0) / max(done, 1) * (n - done))
+                    if done >= n: break
+                    if sink.error is not None: ret = proc.wait(); reader.join(5); raise ffmpeg_error(ret)
+                    if cancel is not None and cancel.is_set():
+                        sink.stop()
+                        for px in pages:
+                            try: px.evaluate('window.__shadow && (window.__shadow.stop = true)')
+                            except Exception: pass
+                        raise Cancelled()
+                    if time.time() - last_poll > 0.5:
+                        last_poll = time.time()
+                        for px in pages:
+                            st = px.evaluate('window.__shadow || null')
+                            if st and st.get('err'):
+                                raise RuntimeError('frame capture failed: ' + st['err'].splitlines()[0] + (f' | page errors: {errs[0]}' if errs else ''))
+                    if time.time() - last_change > CAPTURE_STALL_S:
+                        raise RuntimeError(f'frame capture stopped: no new frame for {CAPTURE_STALL_S} s at frame {done} of {n}'
+                                           + (f' | page errors: {errs[0]}' if errs else ''))
+                    time.sleep(0.02)
+                sink.stop()
             b.close()
         progress('encode', 0, 1)   # only the last frames are left to encode
         try: proc.stdin.close()

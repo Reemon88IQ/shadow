@@ -123,7 +123,7 @@ stays open, so jobs survive a client restart.
 Blender `.blend` scenes work in every tool (paths may mix .html and .blend); `shadow_render` / `shadow_plan` also take
 `engine` (`scene|eevee|cycles|workbench`) and `device` (`auto|gpu|cpu`), `shadow_check_frames` takes `engine`. See docs/BLENDER.md.
 
-Settings use the GUI's choices: quality `best|good|draft`, format `auto|16:9|9:16`, sound `auto|generated|none|file`,
+Settings use the GUI's choices: quality `best|good|draft|1440p|4k`, format `auto|16:9|9:16`, sound `auto|generated|none|file`,
 capture `png|jpeg`, narration `auto|off`, outdated `skip|render` (the GUI asks in a dialog; the server cannot, default skip).
 Defaults: best, auto, auto, png, auto, skip; out_dir = the GUI's Save to.
 

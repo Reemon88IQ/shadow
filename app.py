@@ -38,6 +38,21 @@ BLENDER_ENGINES = list(bc.ENGINES.values())   # GUI labels: Scene setting / Eeve
 SOUNDS = ['Generated (built into the scene)', 'None (silent)', 'External file...', 'Auto (file next to scene)']
 SONG_EXTS = ('.wav', '.mp3', '.m4a', '.flac', '.ogg', '.aac')   # Auto: <scene>.<ext> next to the .html, first one found wins
 OUTDATED = 'This scene is outdated and does not support 9:16'
+def scene_for_mp4(mp4, scenes):
+    """The scene (of `scenes`, e.g. the queue) that renders this video, or None: <name>.mp4 / <name>_shorts.mp4 (also with a
+    _2 / _3 suffix) belongs to the scene whose output name is <name> (short_x.html / x-short.html make x_shorts.mp4).
+    A 9:16 file prefers the Short-named scene, a 16:9 file the other one. Pure."""
+    raw = os.path.splitext(os.path.basename(mp4))[0]
+    hits, short = [], False
+    for stem in (raw, re.sub(r'_\d+$', '', raw)):   # exact name first (a scene may be called ocean_2), then without _2/_3
+        short = stem.lower().endswith('_shorts')
+        base = (stem[:-7] if short else stem).lower()
+        hits = [f for f in scenes if strip_short_marker(scene_folder_name(f)).lower() == base]
+        if hits: break
+    if not hits: return None
+    pref = [f for f in hits if (strip_short_marker(scene_folder_name(f)) != scene_folder_name(f)) == short]
+    return (pref or hits)[0]
+
 PROJECT_EXT = '.shadow'   # project file: the queue + its options (JSON)
 PROJECT_VERSION = 1
 
@@ -338,7 +353,7 @@ def render_deps(scene_path, opts, narr=None):
 
 # Speed before the first frame is measured: 1080p Best on the owner's PC (RTX 5070 Ti), seconds per frame for the capture
 # mode; other sizes scale with the pixel count. Plus a fixed part per scene (Chrome start, sound, encode tail, QC).
-SEC_PER_FRAME = {'png': 0.087, 'jpeg': 0.036}
+SEC_PER_FRAME = {'png': 0.025, 'jpeg': 0.019}   # 3.15 parallel capture, measured end to end at 1080p (was 0.087 / 0.036)
 ITEM_OVERHEAD_S = 15
 _DUR_RE = re.compile(r'(?<![\w.])(?:window\.)?DURATION\s*=\s*(\d+(?:\.\d+)?)\s*(?:[;,)\n]|$)')
 
@@ -1782,6 +1797,8 @@ class YouTubeDialog:
             self.tree.heading(c, text=txt); self.tree.column(c, width=w, stretch=c != 'status')
         self.tree.grid(row=1, column=0, columnspan=4, sticky='nsew', pady=10)
         self.tree.bind('<Double-1>', lambda e: self.open_selected())
+        self.tree.bind('<<TreeviewSelect>>', lambda e: self.show_source())
+        self.ask = lambda title, text: messagebox.askyesno(title, text, parent=self.top)   # tests replace it
         ttk.Label(f, text='Privacy').grid(row=2, column=0, sticky='w')
         self.privacy = tk.StringVar(value='private')
         ttk.Combobox(f, textvariable=self.privacy, values=list(ytm.PRIVACY), state='readonly', width=12).grid(row=2, column=1, sticky='w', padx=8)
@@ -1818,14 +1835,29 @@ class YouTubeDialog:
         except self.ytm.YouTubeError as e: self.msg.config(text=str(e))
 
     def add(self, mp4, scene=None):
-        if any(i['mp4'] == mp4 for i in self.items): return
-        meta, src = self.ytm.metadata_for(mp4, [os.path.dirname(scene)] if scene else [])
-        it = dict(mp4=mp4, meta=meta, src=src, result=None)
-        it['iid'] = self.tree.insert('', 'end', text=os.path.basename(mp4),
-                                     values=((meta or {}).get('title') or '(no metadata.txt: file name)', self.when_text(meta), 'Ready'))
-        self.items.append(it)
+        """One video row. Its metadata.txt is looked for next to the video, then next to its scene: the row's scene, or for
+        "Add video..." the queued scene that makes this file (scene_for_mp4), so a picked mp4 still gets its metadata."""
+        mp4 = os.path.normpath(mp4)   # the file picker gives C:/... - the same file must not be listed twice
+        if any(os.path.normcase(i['mp4']) == os.path.normcase(mp4) for i in self.items): return
+        scene = scene or scene_for_mp4(mp4, getattr(self.app, 'files', []))
+        it = dict(mp4=mp4, scene=scene, cands=[os.path.dirname(scene)] if scene else [], meta=None, src=None, result=None)
+        it['iid'] = self.tree.insert('', 'end', text=os.path.basename(mp4), values=('', '', 'Ready'))
+        self.items.append(it); self.load_meta(it)
+        meta = it['meta']
         if meta and meta.get('kids') is not None and len(self.items) == 1: self.kids.set(bool(meta['kids']))
         if meta and meta.get('ai') is not None and len(self.items) == 1: self.ai.set(bool(meta['ai']))
+
+    def load_meta(self, it):
+        """(Re)read the row's metadata.txt from disk (also right before Upload: a file written after the dialog opened counts)."""
+        it['meta'], it['src'] = self.ytm.metadata_for(it['mp4'], it['cands'])
+        m = it['meta'] or {}
+        self.tree.set(it['iid'], 'title', m.get('title') or '(no metadata.txt: file name)'); self.tree.set(it['iid'], 'when', self.when_text(m))
+
+    def show_source(self):
+        """Status line for the selected row: which metadata.txt its upload will use."""
+        sel = set(self.tree.selection()); it = next((i for i in self.items if i['iid'] in sel), None)
+        if it: self.msg.config(text=f"metadata: {it['src']}" if it['src'] else 'no metadata.txt next to this video'
+                               + (f" or its scene ({os.path.basename(it['scene'])})" if it['scene'] else ' (and no queued scene makes it)'))
 
     @staticmethod
     def when_text(meta):
@@ -1860,6 +1892,11 @@ class YouTubeDialog:
         todo = [i for i in self.items if not i['result']]
         if not todo: self.msg.config(text='Nothing to upload.'); return
         if not self.channel.get(): self.msg.config(text='Choose a channel (or Sign in...).'); return
+        for it in todo: self.load_meta(it)   # what is on disk now, not what was there when the dialog opened
+        bare = [os.path.basename(i['mp4']) for i in todo if not i['meta']]
+        if bare and not self.ask('YouTube', 'No metadata.txt found for:\n\n' + '\n'.join(bare) +
+                                 '\n\nThey would be uploaded with the file name as title and no description, tags or schedule. Upload them anyway?'):
+            self.msg.config(text='Put metadata.txt next to the video or its scene, then press Upload.'); return
         self.busy = True; self.cancel.clear(); self.up_btn.config(text='Stop'); ch = self.channel.get()
         privacy, kids, ai, thumb, sched = self.privacy.get(), self.kids.get(), self.ai.get(), self.thumb.get(), self.sched.get()
         bad_thumb = []
@@ -1872,7 +1909,7 @@ class YouTubeDialog:
                     pct = d * 100 // max(t, 1); set_row(it, f'Uploading {pct}%')
                     self.top.after(0, lambda: self.bar.config(value=(n + d / max(t, 1)) * 100 / len(todo)))
                 try:
-                    r = self.ytm.upload_video(it['mp4'], ch, it['meta'], privacy, progress=prog, cancel=self.cancel,
+                    r = self.ytm.upload_video(it['mp4'], ch, it['meta'] or {}, privacy, progress=prog, cancel=self.cancel,
                                               overrides=dict(kids=kids, privacy=privacy, ai=ai), meta_path=it['src'],
                                               thumbnail=thumb, schedule=sched)
                     it['result'] = r; self.last = r; ok += 1
@@ -2094,7 +2131,7 @@ def cli(argv):
     import argparse
     ap = argparse.ArgumentParser(prog='Shadow'); ap.add_argument('--render', nargs=2, metavar=('SCENE', 'OUT'), required=True)
     ap.add_argument('--vertical', action='store_true'); ap.add_argument('--silent', action='store_true')
-    ap.add_argument('--preset', default='best', choices=['draft', 'good', 'best'])
+    ap.add_argument('--preset', default='best', choices=['draft', 'good', 'best', '1440p', '4k'])
     ap.add_argument('--fast', action='store_true', help='Fast capture (JPEG frames, about 2x faster)')
     ap.add_argument('--engine', default='scene', choices=list(bc.ENGINES), help='.blend only: render engine (default: the scene setting)')
     a = ap.parse_args(argv)

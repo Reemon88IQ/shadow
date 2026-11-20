@@ -298,7 +298,34 @@ try:
           and d.up_btn.cget('text') == 'Upload' and str(d.studio_btn.cget('state')) == 'normal' and 'Thumbnail not set' in d.msg.cget('text'), st)
     n = len(calls); d.start(wait=True); a.update()
     check('dialog: a second Upload does not upload the same videos again', len(calls) == n)
-    d.top.destroy(); a.destroy()
+    d.top.destroy()
+
+    # the 2026-11-20 Bright Questions case: videos picked with "Add video..." (C:/ paths), metadata.txt only next to the scenes,
+    # written after the dialog was opened
+    bq = os.path.join(tmp, 'scenes', 'bq'); vids = os.path.join(tmp, 'Videos', 'Video', 'bq'); os.makedirs(bq); os.makedirs(vids)
+    for nme in ('bq.html', 'bq-short.html'): open(os.path.join(bq, nme), 'w').close()
+    for nme in ('bq.mp4', 'bq_shorts.mp4'): open(os.path.join(vids, nme), 'wb').write(b'x')
+    a.files = [os.path.join(bq, 'bq.html'), os.path.join(bq, 'bq-short.html')]; a.out_mp4 = {}
+    calls.clear(); d2 = app.YouTubeDialog(a, []); d2.ytm.upload_video = fake_upload; asked = []
+    d2.add(os.path.join(vids, 'bq.mp4').replace('\\', '/')); d2.add(os.path.join(vids, 'bq.mp4')); d2.add(os.path.join(vids, 'bq_shorts.mp4').replace('\\', '/'))
+    check('dialog: "Add video..." finds each video\'s scene in the queue (Short -> the -short scene); C:/ and C:\\ paths are one row',
+          [os.path.basename(i['scene'] or '') for i in d2.items] == ['bq.html', 'bq-short.html'], [(i['mp4'], i['scene']) for i in d2.items])
+    d2.ask = lambda t, x: asked.append(x) or False
+    d2.start(wait=True); a.update()
+    check('dialog: no metadata.txt anywhere -> asks first, naming both videos; No = nothing uploaded', calls == [] and asked
+          and 'bq.mp4' in asked[0] and 'bq_shorts.mp4' in asked[0] and not d2.busy, (calls, asked))
+    open(os.path.join(bq, 'metadata.txt'), 'w', encoding='utf-8').write(META)   # written while the dialog is open
+    d2.tree.selection_set(d2.items[0]['iid']); d2.show_source()
+    check('dialog: the status line names the metadata.txt that will be used (read again from disk)', 'no metadata.txt' in d2.msg.cget('text'))
+    asked.clear(); d2.start(wait=True); a.update()
+    check('dialog: metadata.txt written after opening is used at Upload (no question), right section per video', asked == []
+          and [(c['mp4'], c['title'], bool(c['meta_path'])) for c in calls] == [('bq.mp4', fm['title'], True), ('bq_shorts.mp4', sm['title'], True)], (asked, calls))
+    d2.tree.selection_set(d2.items[1]['iid']); d2.show_source()
+    check('dialog: status line shows the scene folder metadata.txt', d2.msg.cget('text') == f"metadata: {os.path.join(bq, 'metadata.txt')}", d2.msg.cget('text'))
+    check('scene_for_mp4: _2 suffix, short_ prefix, exact names with _2, no match', app.scene_for_mp4('C:/v/bq_2.mp4', a.files).endswith('bq.html')
+          and app.scene_for_mp4('x/ocean_shorts.mp4', ['s/short_ocean.html']) == 's/short_ocean.html'
+          and app.scene_for_mp4('x/ocean_2.mp4', ['s/ocean.html', 's/ocean_2.html']) == 's/ocean_2.html' and app.scene_for_mp4('x/zzz.mp4', a.files) is None)
+    d2.top.destroy(); a.destroy()
     for h in list(app.log.handlers): h.close(); app.log.removeHandler(h)
     tlog = open(app.LOG, encoding='utf-8').read() if os.path.isfile(app.LOG) else ''
     check('log: upload lines went to the temp log, the real ~/shadow.log is untouched', 'youtube upload' in tlog and stat(real_log) == real_before,

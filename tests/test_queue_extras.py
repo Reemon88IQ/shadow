@@ -32,7 +32,7 @@ def render_wrapped(html, out, preset, **kw):
         GATE['name'] = None; prog = kw.get('progress', lambda *_: None)
         def gated(stage, n, total, *rest):
             prog(stage, n, total, *rest)
-            if stage == 'frames' and n == 5: GATE['reached'].set(); GATE['release'].wait(60)
+            if stage == 'frames' and n >= 5 and not GATE['reached'].is_set(): GATE['reached'].set(); GATE['release'].wait(60)   # parallel capture reports frames in jumps
         kw['progress'] = gated
     kw.setdefault('max_frames', 15); kw.setdefault('channel', None); kw.setdefault('extra_args', SW)
     return _render(html, out, preset, **kw)
@@ -102,8 +102,8 @@ try:
     check('X3 scene_duration_guess: narration words.json duration', app.scene_duration_guess(nd, None, dict(words=os.path.join(S, 'talk.words.json'))) == 1.5)
     best = rc.PRESETS['Best (1080p, 64 samples)']; draft = rc.PRESETS['Draft (fast, 720p)']
     e_png, e_jpg = app.estimate_seconds(100, best, 'png'), app.estimate_seconds(100, best, 'jpeg')
-    check('X3 estimate_seconds: 100 s Best PNG = 3000 x 87 ms + 15 s; JPEG faster; Draft faster; measured speed wins',
-          abs(e_png - (3000 * 0.087 + 15)) < 0.01 and e_jpg < e_png and app.estimate_seconds(100, draft, 'png') < e_png
+    check('X3 estimate_seconds: 100 s Best PNG = 3000 x SEC_PER_FRAME + 15 s; JPEG faster; Draft faster; measured speed wins',
+          abs(e_png - (3000 * app.SEC_PER_FRAME['png'] + 15)) < 0.01 and e_jpg < e_png and app.estimate_seconds(100, draft, 'png') < e_png
           and app.estimate_seconds(100, best, 'png', sec_per_frame=0.01) == 3000 * 0.01 + 15 and app.estimate_seconds(None, best) is None, (e_png, e_jpg))
     t0 = datetime.datetime(2026, 11, 19, 15, 28)
     check('X3 eta_text: "about 12 min · done ~15:40", hours, unknown scenes',
@@ -269,7 +269,7 @@ try:
     check('X11 MCP plan skip_up_to_date: rendered scenes "Skipped (up to date)", a_scene (changed after its last render) Queued, opts carry skip_done',
           st == {'a_scene.html': 'Queued', 'b_scene.html': app.SKIPPED_UP_TO_DATE, 'talk.html': app.SKIPPED_UP_TO_DATE} and plan['opts']['skip_done'] is True, st)
     plan = ms.build_plan([A], out_dir=os.path.join(TMP, 'fresh'), quality='best', format='16:9', sound='generated', capture='jpeg')
-    check('X11 MCP plan: estimate_s per row and in total (4 s scene, Best JPEG)', plan['rows'][0]['estimate_s'] and abs(plan['estimate_s'] - (120 * 0.036 + 15)) < 1, plan['estimate_s'])
+    check('X11 MCP plan: estimate_s per row and in total (4 s scene, Best JPEG)', plan['rows'][0]['estimate_s'] and abs(plan['estimate_s'] - (120 * app.SEC_PER_FRAME['jpeg'] + 15)) < 1, plan['estimate_s'])
     rc.PRESETS['Draft (fast, 720p)'] = dict(w=1280, samples=8)
     import frame_check, io, contextlib
     c = os.path.join(TMP, 'cli'); os.makedirs(c); shutil.copy(os.path.join(FIXT, 'webgl_min.html'), os.path.join(c, 'cli scene.html'))

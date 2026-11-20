@@ -88,7 +88,7 @@ preview it, and press Delete to remove it.
 
 | Option | Choices |
 |---|---|
-| **Quality** | *Best (1080p, 64 samples)* - the default for uploads. *Good (1080p, 24 samples)* - faster, slightly less smooth effects. *Draft (fast, 720p)* - quick looks only. "Samples" is passed to the scene; scenes use it for antialiasing and effects. |
+| **Quality** | *Best (1080p, 64 samples)* - the default for uploads. *Good (1080p, 24 samples)* - faster, slightly less smooth effects. *Draft (fast, 720p)* - quick looks only. *1440p* and *4K* - sharper uploads (a 1440p or 4K upload is streamed by YouTube with a better codec, also at 1080p); a 4K render takes about 3x as long as 1080p and the file is about 3x bigger. "Samples" is passed to the scene; scenes use it for antialiasing and effects. |
 | **Format** | *16:9 (YouTube)*, *9:16 (Shorts)*, or *Auto (by file name)* - decided per file (see [Shorts](#shorts-916)). |
 | **Sound** | *Generated (built into the scene)*, *None (silent)*, *External file...*, *Auto (file next to scene)* (see [Sound](#sound)). |
 | **Capture** | *Best quality (PNG)* - lossless frames, the default. *Fast (JPEG, ~2x faster)* - measured 2.7x faster frame stage on a 1080p scene, a very slightly softer picture and a ~1.7x larger file. Good for drafts. |

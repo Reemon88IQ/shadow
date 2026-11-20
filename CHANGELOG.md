@@ -3,6 +3,17 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
+## 3.15
+- **About 4x faster renders**: Shadow now draws the frames in several copies of the scene at once and takes each picture
+  straight from the browser, instead of one frame at a time. Measured on a real Moon Shift scene (20 s, PNG, with ffmpeg):
+  1080p 53 s -> 13 s, 1440p 88 s -> 22 s, 4K 185 s -> 44 s. Same file size and quality; a scene that keeps a little state
+  between frames can differ by an invisible amount (measured PSNR 46 dB or more). `SHADOW_CAPTURE_WORKERS=1` gives frames
+  identical to before (still about 1.6x faster).
+- **YouTube... fix**: a video added with *Add video...* now gets the metadata.txt of its scene in the list (before, only
+  a metadata.txt next to the mp4 was found, and it uploaded with the file name as title). metadata.txt is read again when
+  you press Upload, the status line shows which one a row uses, and Shadow asks before uploading a video without one.
+- **1440p and 4K** in Quality (`1440p (QHD, 64 samples)`, `4K (UHD, 64 samples)`; 9:16 too). 20 s of 4K PNG is about 104 MB.
+
 ## 3.14
 - **Upload from Claude**: Shadow's MCP server can now upload finished videos to YouTube, so Claude can make a video, render
   it and upload it in one go. `shadow_upload_preview` shows exactly what would be sent (title, description, tags, AI label,

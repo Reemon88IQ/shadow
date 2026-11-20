@@ -23,7 +23,8 @@ import app                 # noqa: E402  (no window is created by importing it)
 import qc                  # noqa: E402
 
 CHECK_FRAMES = os.path.join(ROOT, 'tools', 'check_frames.py')
-QUALITY = {'draft': 'Draft (fast, 720p)', 'good': 'Good (1080p, 24 samples)', 'best': 'Best (1080p, 64 samples)'}
+QUALITY = {'draft': 'Draft (fast, 720p)', 'good': 'Good (1080p, 24 samples)', 'best': 'Best (1080p, 64 samples)',
+           '1440p': '1440p (QHD, 64 samples)', '4k': '4K (UHD, 64 samples)'}
 FORMAT = {'auto': app.FORMAT_AUTO, '16:9': '16:9 (YouTube)', '9:16': '9:16 (Shorts)'}
 SOUND = ('auto', 'generated', 'none', 'file')
 CAPTURE = ('png', 'jpeg')
@@ -189,7 +190,7 @@ class Job:
                 if cur is it and it['eta'] is not None and it['stage'] == 'frames': left += it['eta'] + 8; continue
                 est = it['estimate_s']
                 if est and self.spf is not None and not bc.is_blend(it['scene']):
-                    est = (est - app.ITEM_OVERHEAD_S) / (app.SEC_PER_FRAME.get(self.plan['capture'], 0.087) * (self.plan['preset']['w'] / 1920) ** 2) * self.spf + app.ITEM_OVERHEAD_S
+                    est = (est - app.ITEM_OVERHEAD_S) / (app.SEC_PER_FRAME.get(self.plan['capture'], app.SEC_PER_FRAME['png']) * (self.plan['preset']['w'] / 1920) ** 2) * self.spf + app.ITEM_OVERHEAD_S
                 if est: left += est
                 else: unknown += 1
             done = [it for it in self.items if it['result'] and it['result']['result'] == 'done']
