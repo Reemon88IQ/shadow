@@ -26,6 +26,7 @@ Windows down, the night is ours.
 
 TAGS: don't stop the car, synthwave, road trip song
 AUDIENCE: Made for Kids = NO
+AI: yes (Suno vocals)
 PUBLISH: 5:00 AM Sydney time
 
 
@@ -46,6 +47,26 @@ check('metadata: title, multi-line description with chapters, tags', m['full']['
       and m['full']['tags'] == ["don't stop the car", 'synthwave', 'road trip song'], m['full'])
 check('metadata: Made for Kids NO / YES', m['full']['kids'] is False and m['short']['kids'] is True, (m['full']['kids'], m['short']['kids']))
 check('metadata: no sections -> full', list(yt.parse_metadata('TITLE: A\nTAGS: x')) == ['full'])
+check('metadata: AI: yes / missing / no', m['full']['ai'] is True and m['short']['ai'] is None
+      and yt.parse_metadata('AI: No')['full']['ai'] is False and yt.parse_metadata('AI: maybe')['full']['ai'] is None)
+check('metadata: PUBLISH without a date -> no schedule (text kept)', m['full']['publish_at'] is None and m['full']['publish'] == '5:00 AM Sydney time')
+
+# ---------------------------------------------------------------- PUBLISH -> publishAt (UTC)
+P = yt.parse_publish
+check('publish: "Thu 19 Nov 2026, 5:00 AM Sydney time" -> 18:00Z the day before (AEDT +11)',
+      P('Thu 19 Nov 2026, 5:00 AM Sydney time (proposed; change if that slot is taken)') == '2026-11-18T18:00:00Z')
+check('publish: Sydney in winter is +10', P('2026-07-01 05:00 Sydney') == '2026-06-30T19:00:00Z')
+check('publish: ISO with offset / Z / UTC word / Baghdad / pm', P('2026-06-25T05:00:00+10:00') == '2026-06-24T19:00:00Z'
+      and P('2026-11-19 05:00Z') == '2026-11-19T05:00:00Z' and P('Nov 19 2026 17:30 UTC') == '2026-11-19T17:30:00Z'
+      and P('19 Nov 2026, 12:00 PM Baghdad') == '2026-11-19T09:00:00Z' and P('Saturday 5 December 2026 9 pm Sydney') == '2026-12-05T10:00:00Z')
+check('publish: no date, no time, nonsense -> None', P('5:00 AM Sydney time') is None and P('19 Nov 2026') is None and P('') is None
+      and P('31 Feb 2026 5:00') is None)
+import datetime as _dt
+check('publish: Sydney fallback rule without tz data (first Sunday Oct..Apr = +11)', yt._sydney_offset(_dt.datetime(2026, 11, 19, 5)) == 11
+      and yt._sydney_offset(_dt.datetime(2026, 7, 1)) == 10 and yt._sydney_offset(_dt.datetime(2026, 4, 5, 2)) == 11
+      and yt._sydney_offset(_dt.datetime(2026, 4, 5, 4)) == 10 and yt._sydney_offset(_dt.datetime(2026, 10, 4, 3)) == 11)
+two = yt.parse_metadata('=== FULL ===\nTITLE: a\nPUBLISH: 2030-01-02 05:00 UTC\n=== SHORT ===\nTITLE: b\nPUBLISH: same time as the full video\n')
+check('publish: a Short that says "same" takes the full video time', two['short']['publish_at'] == two['full']['publish_at'] == '2030-01-02T05:00:00Z')
 
 tmp = tempfile.mkdtemp(prefix='shadow_yt_'); yt.HOME = tmp
 yt.CLIENT_FILE = os.path.join(tmp, 'client.json'); yt.TOKENS_FILE = os.path.join(tmp, 'tokens.json')
@@ -57,18 +78,33 @@ data = os.urandom(2_500_000); open(full_mp4, 'wb').write(data); open(short_mp4, 
 fm, p = yt.metadata_for(full_mp4, [song]); sm, _ = yt.metadata_for(short_mp4, [song])
 check('metadata_for: found in the scene folder, full for x.mp4, short for x_shorts.mp4', p and fm['title'].startswith("Don't") and sm['title'].endswith('#shorts'))
 check('metadata_for: nothing -> None', yt.metadata_for(full_mp4)[0] is None)
+check('thumbnail: none next to the video -> None', yt.find_thumbnail(full_mp4) is None)
+thumb1 = os.path.join(out, 'x_thumb.jpg'); open(thumb1, 'wb').write(b'\xff\xd8old')
+thumb2 = os.path.join(out, 'x_thumb_2.jpg'); open(thumb2, 'wb').write(b'\xff\xd8new'); os.utime(thumb1, (1, 1))
+open(os.path.join(out, 'x_shorts_thumb.jpg'), 'wb').write(b'\xff\xd8s')
+cover = os.path.join(song, 'cover.png'); open(cover, 'wb').write(b'\x89PNG')
+check('thumbnail: newest <video>_thumb*.jpg next to the mp4; a Short gets none by itself',
+      yt.find_thumbnail(full_mp4) == thumb2 and yt.find_thumbnail(short_mp4) is None, (yt.find_thumbnail(full_mp4), yt.find_thumbnail(short_mp4)))
+check('thumbnail: THUMBNAIL: in metadata.txt (relative to it) wins, also for a Short; missing file -> None',
+      yt.find_thumbnail(short_mp4, {'thumbnail': 'cover.png'}, os.path.join(song, 'metadata.txt')) == cover
+      and yt.find_thumbnail(full_mp4, {'thumbnail': 'gone.jpg'}, os.path.join(song, 'metadata.txt')) is None)
 
 # ---------------------------------------------------------------- body
 b = yt.video_body('A <b>' + 'x' * 200, 'd>', ['t1', 'two words', 'z' * 600], 'private', False, '10')
 check('body: title cleaned + cut to 100, < > removed, tag limit 500', len(b['snippet']['title']) == 100 and '<' not in b['snippet']['title']
       and b['snippet']['description'] == 'd' and b['snippet']['tags'] == ['t1', 'two words'], b['snippet'])
 check('body: private + made for kids flag', b['status'] == {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False})
+b2 = yt.video_body('a', privacy='public', ai=True, publish_at='2030-01-02T05:00:00Z')
+check('body: ai -> containsSyntheticMedia, publish_at -> publishAt and forced Private', b2['status'] == {'privacyStatus': 'private',
+      'selfDeclaredMadeForKids': False, 'containsSyntheticMedia': True, 'publishAt': '2030-01-02T05:00:00Z'}, b2['status'])
+check('body: ai False is sent, ai None is left out', yt.video_body('a', ai=False)['status'].get('containsSyntheticMedia') is False
+      and 'containsSyntheticMedia' not in yt.video_body('a')['status'])
 for bad in (dict(title=''), dict(title='a', privacy='secret')):
     try: yt.video_body(**bad); check(f'body rejects {bad}', False)
     except yt.YouTubeError: check(f'body rejects {bad}', True)
 
 # ---------------------------------------------------------------- fake Google
-S = dict(received=bytearray(), fail_once=True, puts=0, meta=None, refreshes=0, token_posts=[])
+S = dict(received=bytearray(), fail_once=True, puts=0, meta=None, refreshes=0, token_posts=[], thumbs=[])
 class Fake(http.server.BaseHTTPRequestHandler):
     def _send(self, code, body=b'', headers=()):
         self.send_response(code)
@@ -83,6 +119,11 @@ class Fake(http.server.BaseHTTPRequestHandler):
                 return self._send(200 if ok else 400, json.dumps(dict(access_token='AT1', refresh_token='RT1', expires_in=3600) if ok else dict(error='invalid_grant')).encode())
             if f.get('refresh_token') == 'RT1': S['refreshes'] += 1; return self._send(200, json.dumps(dict(access_token='AT2', expires_in=3600)).encode())
             return self._send(400, b'{"error":"invalid_grant"}')
+        if self.path.startswith('/thumb'):
+            q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(self.path).query))
+            S['thumbs'].append(dict(video=q.get('videoId'), body=body, ctype=self.headers.get('Content-Type'), auth=self.headers.get('Authorization')))
+            if S.get('thumb_403'): return self._send(403, b'{"error":{"message":"The authenticated user doesnt have permissions to upload and set custom video thumbnails.","errors":[{"reason":"forbidden"}]}}')
+            return self._send(200, b'{"items":[{"default":{"url":"x"}}]}')
         if self.path.startswith('/upload'):
             S['meta'] = json.loads(body); S['upload_auth'] = self.headers.get('Authorization')
             return self._send(200, b'', [('Location', f'http://127.0.0.1:{PORT}/session1')])
@@ -111,6 +152,7 @@ srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Fake); PORT = srv.server
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 base = f'http://127.0.0.1:{PORT}'
 yt.TOKEN_URL = base + '/token'; yt.API = base + '/api'; yt.UPLOAD_URL = base + '/upload'; yt.AUTH_URL = base + '/auth'
+yt.THUMB_URL = base + '/thumb'
 
 try:
     yt.load_client(); check('no client file -> clear error', False)
@@ -145,10 +187,34 @@ check('expired access token -> refreshed with the refresh token', yt.access_toke
 prog = []; yt.CHUNK = 512 * 1024   # 5 chunks, the 503 hits the third
 r = yt.upload_video(full_mp4, 'Moon Shift', candidates=[song], progress=lambda d, tot: prog.append(d))
 check('upload: whole file arrived byte for byte (chunks + one 503 resumed)', bytes(S['received']) == data and not S['fail_once'], len(S['received']))
-check('upload: metadata from metadata.txt, private, not for kids, music category', S['meta']['snippet']['title'].startswith("Don't Stop the Car –")
-      and S['meta']['status'] == {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False} and S['meta']['snippet']['categoryId'] == '10', S['meta'])
+check('upload: metadata from metadata.txt, private, not for kids, AI label, no schedule, music category', S['meta']['snippet']['title'].startswith("Don't Stop the Car –")
+      and S['meta']['status'] == {'privacyStatus': 'private', 'selfDeclaredMadeForKids': False, 'containsSyntheticMedia': True}
+      and S['meta']['snippet']['categoryId'] == '10', S['meta'])
 check('upload: result has the video id + Studio link', r['id'] == 'VID123' and r['studio'].endswith('/VID123/edit') and r['privacy'] == 'private', r)
 check('upload: progress reached 100%', prog and prog[-1] == len(data))
+check('upload: thumbnail set on that video (newest _thumb, jpeg, signed in)', r['thumb'] == 'set' and len(S['thumbs']) == 1
+      and S['thumbs'][0]['video'] == 'VID123' and S['thumbs'][0]['body'] == b'\xff\xd8new' and S['thumbs'][0]['ctype'] == 'image/jpeg'
+      and S['thumbs'][0]['auth'] == 'Bearer AT2', (r.get('thumb'), S['thumbs']))
+
+def again(**kw):
+    S['received'] = bytearray(); S['thumbs'] = []
+    return yt.upload_video(full_mp4, 'Moon Shift', candidates=[song], **kw)
+r = again(overrides=dict(publish_at='2030-01-02T05:00:00Z', ai=False), thumbnail=False)
+check('upload: scheduled (publishAt, Private), AI override False, thumbnail off -> no thumbnails call',
+      S['meta']['status'].get('publishAt') == '2030-01-02T05:00:00Z' and S['meta']['status']['containsSyntheticMedia'] is False
+      and r['publish_at'] == '2030-01-02T05:00:00Z' and not S['thumbs'] and r['thumb'] is None, (S['meta']['status'], r))
+r = again(overrides=dict(publish_at='2001-01-01T00:00:00Z'), thumbnail=cover)
+check('upload: a time already past is not sent; an explicit PNG thumbnail', 'publishAt' not in S['meta']['status'] and r['publish_at'] is None
+      and S['thumbs'] and S['thumbs'][0]['ctype'] == 'image/png', (S['meta']['status'], S['thumbs']))
+r = again(overrides=dict(publish_at='2030-01-02T05:00:00Z'), schedule=False)
+check('upload: schedule=False ignores publish_at', 'publishAt' not in S['meta']['status'])
+S['thumb_403'] = True; r = again()
+check('upload: thumbnail refused (unverified channel) -> video still uploaded, thumb says why', r['id'] == 'VID123'
+      and r['thumb'].startswith('error') and 'verif' in r['thumb'], r.get('thumb'))
+S['thumb_403'] = False
+big = os.path.join(out, 'big.jpg'); open(big, 'wb').write(b'\xff' * (yt.THUMB_MAX + 1))
+try: yt.set_thumbnail('VID123', 'UC_moon', big); check('thumbnail over 2 MB refused before sending', False)
+except yt.YouTubeError as e: check('thumbnail over 2 MB refused before sending', '2 MB' in str(e), e)
 
 ev = threading.Event(); ev.set(); S['received'] = bytearray()
 try: yt.upload(full_mp4, 'UC_moon', b, cancel=ev); check('cancel stops the upload', False)
@@ -165,15 +231,22 @@ srv.shutdown()
 # ---------------------------------------------------------------- the YouTube... dialog (upload faked)
 try:
     import app
+    real_log = app.LOG; stat = lambda p: (os.path.getsize(p), os.path.getmtime(p)) if os.path.isfile(p) else None; real_before = stat(real_log)
+    app.LOG = os.path.join(tmp, 'shadow.log'); app.LOG_DIR = os.path.join(tmp, 'logs')   # never the real ~/shadow.log
+    for h in list(app.log.handlers): app.log.removeHandler(h)
     a = app.App(); a.withdraw()
     scene = os.path.join(song, 'x.html'); open(scene, 'w').close()
     a.files = [scene]; a.out_mp4 = {scene: [full_mp4, short_mp4, os.path.join(out, 'gone.mp4')]}
     check('dialog items: the rendered videos of the rows (missing files skipped)', a.youtube_items() == [(full_mp4, scene), (short_mp4, scene)], a.youtube_items())
     calls = []
-    def fake_upload(mp4, channel=None, meta=None, privacy='private', candidates=(), progress=lambda d, t: None, cancel=None, overrides=None):
-        calls.append(dict(mp4=os.path.basename(mp4), channel=channel, title=(meta or {}).get('title'), **(overrides or {})))
+    def fake_upload(mp4, channel=None, meta=None, privacy='private', candidates=(), progress=lambda d, t: None, cancel=None, overrides=None,
+                    meta_path=None, thumbnail=True, schedule=True):
+        calls.append(dict(mp4=os.path.basename(mp4), channel=channel, title=(meta or {}).get('title'), meta_path=meta_path,
+                          thumbnail=thumbnail, schedule=schedule, **(overrides or {})))
         progress(5, 10); progress(10, 10)
-        return dict(id='V' + str(len(calls)), url='u', studio='https://studio.youtube.com/video/V/edit', privacy='private', title='t', channel=channel)
+        sh = mp4.endswith('_shorts.mp4')
+        return dict(id='V' + str(len(calls)), url='u', studio='https://studio.youtube.com/video/V/edit', privacy='private', title='t', channel=channel,
+                    publish_at=None if sh else '2030-01-02T05:00:00Z', thumb='error: 403 verify' if sh else 'set')
     t = yt.load_tokens(); t['UC_moon'] = dict(title='Moon Shift', refresh_token='RT1'); yt.save_tokens(t)
     d = a.open_youtube_dialog(); d.ytm.upload_video = fake_upload
     check('dialog: titles from metadata.txt in the scene folder, Made for Kids from it, Private, channel preselected',
@@ -182,11 +255,21 @@ try:
     d.start(wait=True); a.update()
     check('dialog upload: both videos, right section each, private, to Moon Shift', [(c['mp4'], c['title'], c['privacy'], c['channel']) for c in calls]
           == [('x.mp4', fm['title'], 'private', 'Moon Shift'), ('x_shorts.mp4', sm['title'], 'private', 'Moon Shift')], calls)
-    check('dialog: rows say Done, Upload button back, Open in Studio enabled', all(d.tree.set(i['iid'], 'status').startswith('Done') for i in d.items)
-          and d.up_btn.cget('text') == 'Upload' and str(d.studio_btn.cget('state')) == 'normal')
+    check('dialog: AI checkbox from metadata.txt, thumbnail + schedule on, passed with the metadata path',
+          [(c['ai'], c['thumbnail'], c['schedule'], bool(c['meta_path'])) for c in calls] == [(True, True, True, True)] * 2, calls)
+    check('dialog: Publish column ("(not a date)" for "5:00 AM Sydney time")', d.tree.set(d.items[0]['iid'], 'when') == '(not a date)'
+          and d.when_text({'publish_at': '2030-01-02T05:00:00Z'}).count(':') == 1 and d.when_text(None) == '', d.tree.set(d.items[0]['iid'], 'when'))
+    st = [d.tree.set(i['iid'], 'status') for i in d.items]
+    check('dialog: rows say Done (+ scheduled, thumbnail / no thumbnail), Upload button back, Open in Studio enabled',
+          st == ['Done (private, scheduled, thumbnail)', 'Done (private, no thumbnail)']
+          and d.up_btn.cget('text') == 'Upload' and str(d.studio_btn.cget('state')) == 'normal' and 'Thumbnail not set' in d.msg.cget('text'), st)
     n = len(calls); d.start(wait=True); a.update()
     check('dialog: a second Upload does not upload the same videos again', len(calls) == n)
     d.top.destroy(); a.destroy()
+    for h in list(app.log.handlers): h.close(); app.log.removeHandler(h)
+    tlog = open(app.LOG, encoding='utf-8').read() if os.path.isfile(app.LOG) else ''
+    check('log: upload lines went to the temp log, the real ~/shadow.log is untouched', 'youtube upload' in tlog and stat(real_log) == real_before,
+          (len(tlog), real_before, stat(real_log)))
 except Exception as e:
     import traceback; traceback.print_exc(); check('dialog test ran', False, e)
 

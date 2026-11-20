@@ -1,5 +1,5 @@
 """Shadow rendering engine: HTML scene -> frames -> audio -> MP4. No GUI code here."""
-VERSION = "3.12"
+VERSION = "3.13"
 import base64, collections, functools, urllib.parse, http.server, os, shutil, subprocess, sys, tempfile, threading, time, wave, array
 
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -13,11 +13,23 @@ PRESETS = {
 # External audio (Sound = External file / Auto song): loudness-match to -15 LUFS, then a true-peak limiter so the track
 # never goes over -1 dBTP (ceiling -1.5). The limiter runs 4x oversampled (192 kHz) so it catches inter-sample peaks;
 # latency=1 removes its 5 ms look-ahead delay (needs ffmpeg 5.1+). level=0: no auto make-up gain (it would undo the ceiling).
-LOUDNORM = 'loudnorm=I=-15:TP=-1.5:LRA=11'
+# Loudness target per channel (3.13): songs (Music) -14 LUFS like YouTube's own playback level, everything else -15.
+# The caller picks it (app.target_lufs: <meta name="shadow-lufs">, else Music -> -14); render(lufs=None) = DEFAULT_LUFS.
+DEFAULT_LUFS, MUSIC_LUFS = -15.0, -14.0
+LUFS_RANGE = (-24.0, -9.0)   # a scene's own shadow-lufs must be inside this (QC still checks the result)
 TP_CEILING_DB = -1.5
 TP_LIMITER = (f'aresample=192000,alimiter=limit={10 ** (TP_CEILING_DB / 20):.4f}:attack=5:release=50:level=0:latency=1,'
               'aresample=48000')
-EXT_AUDIO_AF = f'{LOUDNORM},{TP_LIMITER},apad'   # apad: silence after a track that is shorter than the video
+
+def loudnorm_af(lufs=None):
+    return f'loudnorm=I={DEFAULT_LUFS if lufs is None else lufs:g}:TP={TP_CEILING_DB:g}:LRA=11'
+
+def ext_audio_af(lufs=None):
+    """External song chain: loudnorm to `lufs`, true-peak limiter, apad (silence after a track shorter than the video)."""
+    return f'{loudnorm_af(lufs)},{TP_LIMITER},apad'
+
+LOUDNORM = loudnorm_af()         # -15 (kept for callers that do not choose)
+EXT_AUDIO_AF = ext_audio_af()
 
 def x264_args():
     """Video encoder settings (crf 16 = visually lossless for these scenes; preset medium: about 2x faster than slow)."""
@@ -41,12 +53,71 @@ def check_env():
 class Cancelled(Exception):
     pass
 
+def ffmpeg_message(lines, ret):
+    """'ffmpeg failed: <last 3 error lines joined by " | ">' (one line, so the GUI's error box shows all of it); the exit
+    code when ffmpeg printed nothing. Pure."""
+    lines = [l.strip() for l in lines if l and l.strip()][-3:]
+    return 'ffmpeg failed: ' + (' | '.join(lines) if lines else f'exit code {ret}')
+
 def _ff(cmd):
-    """Run ffmpeg; on failure raise with ffmpeg's own last error line instead of the whole command."""
+    """Run ffmpeg; on failure raise with ffmpeg's own last 3 error lines instead of the whole command."""
     r = subprocess.run(cmd, capture_output=True, creationflags=NOWIN)
     if r.returncode != 0:
-        lines = [l for l in r.stderr.decode('utf-8', 'replace').splitlines() if l.strip()]
-        raise RuntimeError('ffmpeg failed: ' + (lines[-1].strip() if lines else f'exit code {r.returncode}'))
+        raise RuntimeError(ffmpeg_message(r.stderr.decode('utf-8', 'replace').splitlines(), r.returncode))
+
+# What a scene must provide (CLAUDE.md "Scene contract"), with the reason, for messages a person can act on.
+CONTRACT = {
+    'ready': 'window.__ready is never set: set window.__ready = true when the scene has loaded (Shadow waits for it)',
+    'seek': 'window.seek(t) is missing: Shadow calls it for every frame to draw the moment t (seconds)',
+    'duration': 'window.DURATION is missing: set it to the length of the scene in seconds',
+    'canvas': 'no <canvas id="c">: Shadow takes every frame from the canvas with id "c"',
+}
+
+def _scene_sources(html_path, limit=40):
+    """The scene's text plus its LOCAL scripts (<script src>, ES module imports; not http/CDN ones), at most `limit` files."""
+    import re
+    root = os.path.dirname(os.path.abspath(html_path)); seen, out, todo = set(), [], [os.path.abspath(html_path)]
+    while todo and len(seen) < limit:
+        p = todo.pop()
+        if p in seen or not os.path.isfile(p): continue
+        seen.add(p)
+        try:
+            with open(p, encoding='utf-8', errors='replace') as f: s = f.read()
+        except OSError: continue
+        out.append(s)
+        refs = re.findall(r"""<script[^>]*\bsrc\s*=\s*['"]([^'"]+)['"]""", s, re.I) + re.findall(r"""(?:\bfrom|\bimport)\s*\(?\s*['"]([^'"]+\.m?js)['"]""", s)
+        for r in refs:
+            if re.match(r'^(https?:)?//|^data:', r, re.I): continue
+            r = urllib.parse.unquote(r.split('?')[0].split('#')[0])
+            todo.append(os.path.normpath(os.path.join(root if r.startswith('/') else os.path.dirname(p), r.lstrip('/'))))
+    return out
+
+def contract_problems(html_path):
+    """Static check BEFORE rendering: CONTRACT messages for what the scene's text (and its local scripts) never mentions.
+    Only absences are reported, so a scene that builds things in an unusual way may pass here and still fail at load time
+    (that check is exact). [] for a readable scene that mentions everything; never raises."""
+    import re
+    try: src = '\n'.join(_scene_sources(html_path))
+    except Exception: return []
+    if not src: return []
+    out = []
+    if '__ready' not in src: out.append(CONTRACT['ready'])
+    if not re.search(r'\bseek\b', src): out.append(CONTRACT['seek'])
+    if 'DURATION' not in src: out.append(CONTRACT['duration'])
+    if not re.search(r"""\bid\s*=\s*['"]?c['"\s>/]|\.id\s*=\s*['"]c['"]""", src): out.append(CONTRACT['canvas'])
+    return out
+
+def runtime_problems(state):
+    """CONTRACT messages from what the loaded page reports: state = dict(seek=typeof window.seek, dur=window.DURATION,
+    canvas=tag name of #c or None). Pure (tests feed it dicts)."""
+    out = []
+    if state.get('seek') != 'function': out.append(CONTRACT['seek'])
+    d = state.get('dur')
+    if not isinstance(d, (int, float)) or isinstance(d, bool) or not d > 0 or d != d or d == float('inf'):
+        out.append(CONTRACT['duration'] + f' (it is {d!r})' if d is not None else CONTRACT['duration'])
+    if (state.get('canvas') or '').upper() != 'CANVAS':
+        out.append(CONTRACT['canvas'] + (f' (#c is a <{state["canvas"].lower()}>)' if state.get('canvas') else ''))
+    return out
 
 # Frame capture from the canvas. PNG = lossless (default). JPEG 0.98 = "Fast capture": measured on a 1080p scene
 # (RTX 5070 Ti, 2026-11-18) 82 -> 31 ms per frame (whole render about 2x faster), final video SSIM 0.986 -> 0.983, file ~1.7x larger.
@@ -63,32 +134,37 @@ def _loud(ffmpeg, path):
     i = re.findall(r'I:\s*(-?[\d.]+) LUFS', r); tp = re.search(r'True peak:\s*Peak:\s*(-?[\d.]+|-inf)', r)
     return (float(i[-1]) if i else None), (float(tp.group(1)) if tp and tp.group(1) != '-inf' else None)
 
-def finalize_audio(ffmpeg, wav, tmp, aac=('-c:a', 'aac', '-b:a', '192k')):
+def finalize_audio(ffmpeg, wav, tmp, aac=('-c:a', 'aac', '-b:a', '192k'), target=None):
     """Make the mp4's audio land inside the QC limits AFTER the AAC encode: encode a trial AAC, measure it, and turn the
     wav down by exactly what is needed (never up) - loudness to AUDIO_TARGET_LUFS when it is louder, true peak to
     AUDIO_TP_MAX. Measured on a loud song: the limiter gives -1.4 dBTP, but AAC 192k added +1.4 dB (0.0 dBTP) and
-    single-pass loudnorm left -13.6 LUFS. Returns the wav to mux (a new file when it was turned down)."""
+    single-pass loudnorm left -13.6 LUFS. Returns the wav to mux (a new file when it was turned down).
+    target: the loudness to keep under (default AUDIO_TARGET_LUFS = -15; songs use MUSIC_LUFS)."""
+    target = AUDIO_TARGET_LUFS if target is None else target
     cur = wav
     for k in range(3):
         trial = os.path.join(tmp, f'trial{k}.m4a')
         if subprocess.run([ffmpeg, '-v', 'error', '-y', '-i', cur, *aac, trial], capture_output=True, creationflags=NOWIN).returncode: return cur
         lufs, tp = _loud(ffmpeg, trial)
         if lufs is None or tp is None: return cur
-        gain = min(0.0, AUDIO_TARGET_LUFS - lufs if lufs > AUDIO_TARGET_LUFS + 0.3 else 0.0, AUDIO_TP_MAX - tp if tp > AUDIO_TP_MAX else 0.0)
+        gain = min(0.0, target - lufs if lufs > target + 0.3 else 0.0, AUDIO_TP_MAX - tp if tp > AUDIO_TP_MAX else 0.0)
         if gain > -0.05: return cur
         nxt = os.path.join(tmp, f'final{k}.wav')
         _ff([ffmpeg, '-y', '-i', cur, '-af', f'volume={gain:.2f}dB', '-c:a', 'pcm_s16le', nxt]); cur = nxt
     return cur
+
+READY_TIMEOUT_MS = 180000   # how long a scene may take to set window.__ready (big textures / fonts over a slow line)
 
 def _part_path(out_mp4):
     """The file ffmpeg writes while rendering; renamed to out_mp4 only when everything succeeded."""
     root, ext = os.path.splitext(os.path.abspath(out_mp4))
     return f'{root}.part{ext or ".mp4"}'
 
-def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=None, max_frames=None, channel='chrome', extra_args=(), vertical=False, sound='generated', audio_file=None, info=None, capture='png'):
+def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=None, max_frames=None, channel='chrome', extra_args=(), vertical=False, sound='generated', audio_file=None, info=None, capture='png', lufs=None):
     """progress(stage, done, total[, eta]); stages in order: load, audio, frames, encode, done. cancel: threading.Event.
     sound: 'generated' | 'none' | 'file' (audio_file). capture: 'png' (lossless, default) | 'jpeg' (Fast capture).
-    info: optional dict, filled with {'sound': the mode actually used, 'scene_duration', 'duration', 'capture'}.
+    lufs: loudness target of the sound (None = DEFAULT_LUFS -15; songs MUSIC_LUFS -14).
+    info: optional dict, filled with {'sound': the mode actually used, 'scene_duration', 'duration', 'capture', 'lufs'}.
     Frames are piped straight into ffmpeg (no frame files on disk) and encoded while the scene renders; the mp4 is written
     as <name>.part.mp4 and renamed to out_mp4 only on success, so a cancelled or failed render leaves no file behind."""
     from playwright.sync_api import sync_playwright
@@ -97,6 +173,8 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
         raise RuntimeError('ffmpeg not found')
+    if CONTRACT['ready'] in contract_problems(src):   # would only time out after 3 minutes: say why now
+        raise RuntimeError('The scene cannot render: ' + CONTRACT['ready'] + '.')
     w, samples = preset['w'], preset['samples']
     cw, ch = (round(w * 9 / 16), w) if vertical else (w, round(w * 9 / 16))
     tmp = tempfile.mkdtemp(prefix='bq_render_')
@@ -117,12 +195,16 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
             progress('load', 0, 1)
             pg.goto(f'http://127.0.0.1:{port}/{urllib.parse.quote(page)}?render=1&s={samples}&w={cw}&h={ch}')
             try:
-                pg.wait_for_function('window.__ready===true', timeout=180000)
+                pg.wait_for_function('window.__ready===true', timeout=READY_TIMEOUT_MS)
             except Exception:
-                raise RuntimeError('The scene did not load. ' + ' | '.join(errs[:2]))
+                why = (' Page errors: ' + ' | '.join(errs[:2])) if errs else ' No page errors: check that the scene sets window.__ready = true at the end of loading.'
+                raise RuntimeError(f'The scene did not load: window.__ready was not true after {READY_TIMEOUT_MS // 1000} s.' + why)
+            bad = runtime_problems(pg.evaluate("""(()=>{const c=document.getElementById('c');
+                return {seek: typeof window.seek, dur: window.DURATION === undefined ? null : window.DURATION, canvas: c ? c.tagName : null}})()"""))
+            if bad: raise RuntimeError('The scene cannot render: ' + '; '.join(bad) + '.')
             if sound == 'generated' and not pg.evaluate("typeof window.STYLE_SOUND==='function' && typeof window.SOUND==='object' && typeof window.SOUND.renderOffline==='function'"):
                 sound = 'none'   # the scene has no generated score: render it silent instead of failing after all the frames
-            if info is not None: info['sound'] = sound; info['capture'] = capture
+            if info is not None: info['sound'] = sound; info['capture'] = capture; info['lufs'] = None if sound == 'none' else (DEFAULT_LUFS if lufs is None else lufs)
             dur = pg.evaluate('window.DURATION'); n = round(dur * fps)
             if max_frames: n = min(n, max_frames)
             if info is not None:
@@ -142,14 +224,14 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
                 raw = os.path.join(tmp, 'raw.wav')
                 with wave.open(raw, 'wb') as wf:
                     wf.setnchannels(2); wf.setsampwidth(2); wf.setframerate(48000); wf.writeframes(i16.tobytes())
-                _ff([ffmpeg, '-y', '-i', raw, '-af', LOUDNORM, '-ar', '48000', aud])
+                _ff([ffmpeg, '-y', '-i', raw, '-af', loudnorm_af(lufs), '-ar', '48000', aud])
             elif sound == 'file':
                 if not audio_file or not os.path.exists(audio_file): raise RuntimeError('Audio file not found')
                 progress('audio', 0, 1)
                 # loudness-match the external track, true-peak limit it, pad with silence if it is shorter than the video
-                _ff([ffmpeg, '-y', '-i', audio_file, '-af', EXT_AUDIO_AF, '-ar', '48000', '-t', str(n / fps), aud])
+                _ff([ffmpeg, '-y', '-i', audio_file, '-af', ext_audio_af(lufs), '-ar', '48000', '-t', str(n / fps), aud])
             if sound != 'none':   # measured after a trial AAC encode: turn down until the mp4 will pass QC (true peak, loudness)
-                aud = finalize_audio(ffmpeg, aud, tmp)
+                aud = finalize_audio(ffmpeg, aud, tmp, target=lufs)
 
             # 2) frames -> ffmpeg's stdin, encoded while the next frames render. -nostats + a reader thread on stderr:
             # ffmpeg can never block on a full stderr pipe (that would hang a long render).
@@ -167,7 +249,7 @@ def render(html_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=
                     if t: err_lines.append(t)
             reader = threading.Thread(target=drain, daemon=True); reader.start()
             def ffmpeg_error(ret):
-                return RuntimeError('ffmpeg failed: ' + (err_lines[-1] if err_lines else f'exit code {ret}'))
+                return RuntimeError(ffmpeg_message(list(err_lines), ret))
             js = CAPTURE_JS[capture]
             t0 = time.time()
             for i in range(n):

@@ -8,7 +8,7 @@ scenes/ is never touched).
   B4 no sound in the scene: silent like an HTML scene without SOUND   B5 Cycles on the GPU (OptiX/CUDA when found) + Workbench
   B6 cancel mid-render: no mp4, no .part.mp4, Blender gone   B7 missing texture: a warning, and a problem in the preview
   B8 a broken .blend: clean error   B9 preview(): contact sheet 16:9 + 9:16
-  B10 the GUI queue function app.render_scene: short_*.blend -> <out>/short_x/short_x_shorts.mp4, Sound Auto (<scene>.wav next to
+  B10 the GUI queue function app.render_scene: short_*.blend -> <out>/x/x_shorts.mp4, Sound Auto (<scene>.wav next to
       it, also when a words.json lies next to it), QC report, thumbnail; narration is refused for .blend
   B11 CLI: app.py --render x.blend out.mp4 --preset draft   B12 MCP: plan kind 'blender', a job renders it, .blend-only needs no Chrome"""
 import json, os, shutil, subprocess, sys, tempfile, threading, time, traceback, wave, math, struct
@@ -61,6 +61,7 @@ def b13(cube, tmp):
     try:
         out = os.path.join(tmp, 'gui')
         a.open_when_done.set(False); a.skip_done.set(False); a.notify.set(False); a.preset.set('Draft (fast, 720p)'); a.fmt.set(app.FORMAT_AUTO); a.snd.set(app.SOUNDS[0])
+        a.folder_choice.set(app.FOLDER_NONE)   # <Save to>\cube\ (Folder = Auto is checked in test_queue_logic / test_mcp_server)
         a.capture.set(list(app.CAPTURES)[1]); a.bl_engine.set(bc.ENGINES['workbench']); a.out_dir.set(out)
         a._add(cube); a._add(os.path.join(tmp, 'not_a_scene.txt'))
         v = a.tree.item(a.rows[cube], 'values') if cube in a.rows else ()
@@ -166,9 +167,9 @@ def main():
         check('B10 scene_info(.blend): 9:16 capable (no outdated warning)', app.scene_info(sq)['vertical'])
         out = os.path.join(tmp, 'out'); warns = []
         r = app.render_scene(sq, DRAFT, out, dict(vertical=False, format=app.FORMAT_AUTO, sound='auto', audio_file=None, capture='jpeg',
-                                                  engine='eevee', device='auto'), warns=warns)
-        want = os.path.join(out, 'short_cube', 'short_cube_shorts.mp4'); p = ffprobe(want) if os.path.isfile(want) else {}
-        check('B10 render_scene: short_cube.blend -> <out>/short_cube/short_cube_shorts.mp4, 720x1280, with the song',
+                                                  engine='eevee', device='auto', folder=app.FOLDER_NONE), warns=warns)
+        want = os.path.join(out, 'cube', 'cube_shorts.mp4'); p = ffprobe(want) if os.path.isfile(want) else {}   # 3.12: a Short sits next to its video
+        check('B10 render_scene: short_cube.blend -> <out>/cube/cube_shorts.mp4, 720x1280, with the song',
               r['status'] == 'done' and r['mp4'] == want and (p.get('w'), p.get('h')) == (720, 1280) and p.get('audio'), (r['status'], r['error'], p))
         check('B10 QC report + thumbnail (marker), status "Done · QC ..."', r['row'].startswith('Done · QC') and r['qc_report'] and os.path.isfile(r['qc_report'])
               and r['thumb'] and os.path.isfile(r['thumb']), (r['row'], r['qc'] and r['qc']['reasons']))

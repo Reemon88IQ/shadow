@@ -76,7 +76,8 @@ def plan_scene(f, fmt_label, sound, audio_file=None, narration='auto', folder_ch
     mark = f' {app.VOICE_EMBEDDED_MARK}' if embedded else f' {app.VOICE_MARK}' if narr else ''
     return dict(scene=f, name=os.path.basename(f) + mark, format=app.format_label(vertical), vertical=vertical,
                 audio=ra['label'], audio_warn=ra['warn'], narration=narr, narration_note=narr_note, embedded=embedded,
-                outdated=outdated, main=(main := app.category_folder(f, folder_choice, sound, audio_file, narrated=narrated)),
+                outdated=outdated, scene_check=[] if blend else rc.contract_problems(f),
+                main=(main := app.category_folder(f, folder_choice, sound, audio_file, narrated=narrated)),
                 folder=app.output_place(f, vertical, main)[0], kind='blender' if blend else 'html')
 
 def build_plan(paths, out_dir=None, quality='best', format='auto', sound='auto', audio_file=None, capture='png',
@@ -108,6 +109,7 @@ def build_plan(paths, out_dir=None, quality='best', format='auto', sound='auto',
         r['estimate_s'] = None if r['skip'] else app.estimate_seconds(app.scene_duration_guess(r['scene'], app.find_scene_audio(r['scene']) if snd == 'auto' else audio_file, r['narration']), preset, cap)
     warns = [r['audio_warn'] for r in rows if r['audio_warn'] and not r['skip']]
     warns += [f"{os.path.basename(r['scene'])}: {r['narration_note']}" for r in rows if r['narration_note']]
+    warns += [f"{os.path.basename(r['scene'])} will probably fail: {'; '.join(r['scene_check'])}" for r in rows if r['scene_check'] and not r['skip']]
     if any(r['outdated'] for r in rows):
         warns.append(f"{app.OUTDATED}: " + ', '.join(os.path.basename(r['scene']) for r in rows if r['outdated'])
                      + (' (skipped; outdated="render" renders them anyway)' if outdated == 'skip' else ' (rendered anyway)'))

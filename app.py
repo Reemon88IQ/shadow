@@ -38,6 +38,7 @@ BLENDER_ENGINES = list(bc.ENGINES.values())   # GUI labels: Scene setting / Eeve
 SOUNDS = ['Generated (built into the scene)', 'None (silent)', 'External file...', 'Auto (file next to scene)']
 SONG_EXTS = ('.wav', '.mp3', '.m4a', '.flac', '.ogg', '.aac')   # Auto: <scene>.<ext> next to the .html, first one found wins
 OUTDATED = 'This scene is outdated and does not support 9:16'
+SKIPPED_SCENE_CHECK = 'Skipped (scene check)'   # Render: the scene misses window.__ready / seek / DURATION / canvas#c and the user chose No
 FORMAT_AUTO = 'Auto (by file name)'   # per file: a name starting with "short_" -> 9:16, every other file -> 16:9
 FORMAT_CHOICES = list(rc.FORMATS) + [FORMAT_AUTO]
 # Capture: how each frame leaves the browser (render_core.render(capture=...)). PNG = lossless; JPEG = about 2x faster render,
@@ -132,6 +133,22 @@ def scene_out_folder(scene_path):
     except OSError: return ''
     m = _META_FOLDER.search(head)
     return safe_rel_folder(m.group(1)) if m else ''
+
+_META_LUFS = re.compile(r"""<meta\s+name\s*=\s*["']shadow-lufs["']\s+content\s*=\s*["']\s*(-?\d+(?:\.\d+)?)\s*(?:lufs)?\s*["']""", re.I)
+
+def target_lufs(scene_path, sound='generated', audio_file=None, narrated=False):
+    """Loudness target of one render (render_core.render(lufs=...)): <meta name="shadow-lufs" content="-14"> in the scene
+    wins (inside rc.LUFS_RANGE); else a song = rc.MUSIC_LUFS (-14, YouTube's playback level): a song file as the sound
+    (External file, or Sound Auto finding <scene>.mp3 next to it) without narration, or a scene whose shadow-folder is
+    Music; everything else (own generated sound, narration) rc.DEFAULT_LUFS (-15). Pure apart from reading the scene."""
+    if scene_path.lower().endswith(('.html', '.htm')):
+        try:
+            with open(scene_path, encoding='utf-8', errors='replace') as fh: m = _META_LUFS.search(fh.read(20000))
+        except OSError: m = None
+        if m and rc.LUFS_RANGE[0] <= float(m.group(1)) <= rc.LUFS_RANGE[1]: return float(m.group(1))
+    song = not narrated and (sound == 'file' and audio_file or sound == 'auto' and find_scene_audio(scene_path))
+    if song or re.split(r'[\\/]', scene_out_folder(scene_path))[0].lower() == 'music': return rc.MUSIC_LUFS
+    return rc.DEFAULT_LUFS
 
 def safe_rel_folder(text):
     """'Music' / 'Music/2026' -> a Windows-safe relative path ('' if nothing is left): no '..', no : ? * etc., no drive,
@@ -477,6 +494,8 @@ def render_item(scene, mp4, preset, opts, narr=None, cancel=None, progress=lambd
     build the hidden temp scene, force sound='generated' (the voice is mixed inside the page's SOUND kit), render it
     to mp4 (the name comes from the caller, i.e. the original scene) and always delete the temp file."""
     opts = dict(opts); bl = {k: opts.pop(k) for k in ('engine', 'device', 'allow_scripts') if k in opts}   # Blender-only settings
+    if opts.get('lufs') is None:   # loudness per channel: songs -14, the rest -15, or the scene's own shadow-lufs
+        opts['lufs'] = target_lufs(scene, opts.get('sound', 'generated'), opts.get('audio_file'), narrated=bool(narr))
     if bc.is_blend(scene):   # Blender scene: same contract as rc.render (folders, audio rules, QC all the same)
         if narr: raise ValueError('narration with word captions works for HTML scenes only; for a .blend put the voice in its sound')
         return bc.render(scene, mp4, preset, progress=progress, cancel=cancel, info=info, **opts, **bl)
@@ -631,7 +650,8 @@ def quality_check(mp4, preset, vertical, info, sound):
     info: render_core's info dict (duration = what was rendered); sound: the mode actually used ('none' = silent by design)."""
     try:
         w, h = expected_size(preset, vertical)
-        res = qc.run_qc(mp4, dict(width=w, height=h, duration=(info or {}).get('duration'), silent=(sound == 'none')))
+        res = qc.run_qc(mp4, dict(width=w, height=h, duration=(info or {}).get('duration'), silent=(sound == 'none'),
+                                      lufs=(info or {}).get('lufs')))
         path = qc.write_report(mp4, res)
         log.info('qc %s %s: %s%s', res['status'], mp4, '; '.join(res['reasons']) or 'no issues', f' (report {path})' if path else '')
         return res, path
@@ -1197,6 +1217,16 @@ class App(Root):
                     for f in old: self.set_row(f, 'Skipped (outdated, no 9:16)')
                     jobs = [j for j in jobs if j[0] not in old]
                     if not jobs: return
+        broken = {f: p for f, p in ((f, rc.contract_problems(f)) for f, _ in jobs if not bc.is_blend(f)) if p}
+        if broken:   # explained before the render instead of an error (or a 3-minute wait) in the middle of the queue
+            a = ask('Scene check', 'These scenes miss something Shadow needs and will probably fail:\n\n' +
+                    '\n\n'.join(f'{os.path.basename(f)}:\n' + '\n'.join(f'  • {x}' for x in p) for f, p in broken.items()) +
+                    '\n\nRender them anyway?\nYes = render all   No = skip these   Cancel = stop')
+            if a is None: return
+            if a is False:
+                for f in broken: self.set_row(f, SKIPPED_SCENE_CHECK)
+                jobs = [j for j in jobs if j[0] not in broken]
+                if not jobs: return
         for f, _ in jobs: self.set_row(f, 'Queued', '—')
         self.refresh_audio()   # Audio column + the Auto fallback warning on the status line
         with self.lock:
@@ -1622,8 +1652,8 @@ class YouTubeDialog:
         self.channel = tk.StringVar(); self.ch_box = ttk.Combobox(f, textvariable=self.channel, state='readonly', width=34)
         self.ch_box.grid(row=0, column=1, sticky='w', padx=8)
         ttk.Button(f, text='Sign in...', command=self.sign_in).grid(row=0, column=2, sticky='w')
-        self.tree = ttk.Treeview(f, columns=('title', 'status'), height=6)
-        for c, w, txt in (('#0', 220, 'Video'), ('title', 260, 'Title (metadata.txt)'), ('status', 150, 'Status')):
+        self.tree = ttk.Treeview(f, columns=('title', 'when', 'status'), height=6)
+        for c, w, txt in (('#0', 200, 'Video'), ('title', 240, 'Title (metadata.txt)'), ('when', 120, 'Publish'), ('status', 170, 'Status')):
             self.tree.heading(c, text=txt); self.tree.column(c, width=w, stretch=c != 'status')
         self.tree.grid(row=1, column=0, columnspan=4, sticky='nsew', pady=10)
         self.tree.bind('<Double-1>', lambda e: self.open_selected())
@@ -1632,11 +1662,16 @@ class YouTubeDialog:
         ttk.Combobox(f, textvariable=self.privacy, values=list(ytm.PRIVACY), state='readonly', width=12).grid(row=2, column=1, sticky='w', padx=8)
         self.kids = tk.BooleanVar(value=False)
         ttk.Checkbutton(f, text='Made for kids', variable=self.kids).grid(row=2, column=2, sticky='w')
+        self.ai, self.thumb, self.sched = tk.BooleanVar(value=False), tk.BooleanVar(value=True), tk.BooleanVar(value=True)
+        opt = ttk.Frame(f); opt.grid(row=3, column=0, columnspan=4, sticky='w', pady=(6, 0))
+        ttk.Checkbutton(opt, text='Altered or synthetic (AI) content', variable=self.ai).pack(side='left')
+        ttk.Checkbutton(opt, text='Set thumbnail (*_thumb.jpg)', variable=self.thumb).pack(side='left', padx=12)
+        ttk.Checkbutton(opt, text='Schedule (PUBLISH: time)', variable=self.sched).pack(side='left')
         ttk.Label(f, text='Until Google approves the app (YouTube API audit), YouTube keeps API uploads Private.',
-                  foreground='#888').grid(row=3, column=0, columnspan=4, sticky='w', pady=(6, 0))
-        self.bar = ttk.Progressbar(f, maximum=100); self.bar.grid(row=4, column=0, columnspan=4, sticky='we', pady=(10, 0))
-        self.msg = ttk.Label(f, text='', foreground='#888'); self.msg.grid(row=5, column=0, columnspan=4, sticky='w')
-        bt = ttk.Frame(f); bt.grid(row=6, column=0, columnspan=4, sticky='we', pady=(10, 0))
+                  foreground='#888').grid(row=4, column=0, columnspan=4, sticky='w', pady=(6, 0))
+        self.bar = ttk.Progressbar(f, maximum=100); self.bar.grid(row=5, column=0, columnspan=4, sticky='we', pady=(10, 0))
+        self.msg = ttk.Label(f, text='', foreground='#888'); self.msg.grid(row=6, column=0, columnspan=4, sticky='w')
+        bt = ttk.Frame(f); bt.grid(row=7, column=0, columnspan=4, sticky='we', pady=(10, 0))
         ttk.Button(bt, text='Add video...', command=self.pick).pack(side='left')
         ttk.Button(bt, text='Remove', command=self.remove).pack(side='left', padx=6)
         self.studio_btn = ttk.Button(bt, text='Open in Studio', command=self.open_selected, state='disabled'); self.studio_btn.pack(side='left')
@@ -1662,9 +1697,20 @@ class YouTubeDialog:
         meta, src = self.ytm.metadata_for(mp4, [os.path.dirname(scene)] if scene else [])
         it = dict(mp4=mp4, meta=meta, src=src, result=None)
         it['iid'] = self.tree.insert('', 'end', text=os.path.basename(mp4),
-                                     values=((meta or {}).get('title') or '(no metadata.txt: file name)', 'Ready'))
+                                     values=((meta or {}).get('title') or '(no metadata.txt: file name)', self.when_text(meta), 'Ready'))
         self.items.append(it)
         if meta and meta.get('kids') is not None and len(self.items) == 1: self.kids.set(bool(meta['kids']))
+        if meta and meta.get('ai') is not None and len(self.items) == 1: self.ai.set(bool(meta['ai']))
+
+    @staticmethod
+    def when_text(meta):
+        """Publish column: the PUBLISH: time in this PC's zone, '' without PUBLISH:, '(not a date)' when it has no date + time."""
+        m = meta or {}
+        if m.get('publish_at'):
+            import datetime
+            t = datetime.datetime.strptime(m['publish_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc).astimezone()
+            return t.strftime('%a %d %b %H:%M')
+        return '(not a date)' if m.get('publish') else ''
 
     def pick(self):
         for p in filedialog.askopenfilenames(parent=self.top, filetypes=[('MP4 video', '*.mp4')], initialdir=self.app.out_dir.get()): self.add(p)
@@ -1690,7 +1736,8 @@ class YouTubeDialog:
         if not todo: self.msg.config(text='Nothing to upload.'); return
         if not self.channel.get(): self.msg.config(text='Choose a channel (or Sign in...).'); return
         self.busy = True; self.cancel.clear(); self.up_btn.config(text='Stop'); ch = self.channel.get()
-        privacy, kids = self.privacy.get(), self.kids.get()
+        privacy, kids, ai, thumb, sched = self.privacy.get(), self.kids.get(), self.ai.get(), self.thumb.get(), self.sched.get()
+        bad_thumb = []
         def set_row(it, status): self.top.after(0, lambda: self.tree.set(it['iid'], 'status', status))
         def work():
             ok = 0
@@ -1701,16 +1748,23 @@ class YouTubeDialog:
                     self.top.after(0, lambda: self.bar.config(value=(n + d / max(t, 1)) * 100 / len(todo)))
                 try:
                     r = self.ytm.upload_video(it['mp4'], ch, it['meta'], privacy, progress=prog, cancel=self.cancel,
-                                              overrides=dict(kids=kids, privacy=privacy))
-                    it['result'] = r; self.last = r; ok += 1; set_row(it, f"Done ({r.get('privacy') or privacy})")
-                    log.info('youtube upload %s -> %s %s', it['mp4'], r['channel'], r['url'])
+                                              overrides=dict(kids=kids, privacy=privacy, ai=ai), meta_path=it['src'],
+                                              thumbnail=thumb, schedule=sched)
+                    it['result'] = r; self.last = r; ok += 1
+                    extra = (['scheduled'] if r.get('publish_at') else []) + (['thumbnail'] if r.get('thumb') == 'set' else [])
+                    if str(r.get('thumb') or '').startswith('error'): extra.append('no thumbnail'); bad_thumb.append(r['thumb'][7:])
+                    set_row(it, f"Done ({', '.join([r.get('privacy') or privacy] + extra)})")
+                    log.info('youtube upload %s -> %s %s thumb=%s publish=%s', it['mp4'], r['channel'], r['url'], r.get('thumb'), r.get('publish_at'))
                 except Exception as e:
                     set_row(it, 'Stopped' if self.cancel.is_set() else 'Error'); log.warning('youtube upload %s: %s', it['mp4'], e)
                     self.top.after(0, lambda e=e: self.msg.config(text=str(e)))
                     if self.cancel.is_set(): break
             def end():
                 self.busy = False; self.up_btn.config(text='Upload')
-                if ok: self.studio_btn.config(state='normal'); self.msg.config(text=f'{ok} uploaded to {ch}. Double-click a row to open it in YouTube Studio.')
+                if ok:
+                    self.studio_btn.config(state='normal')
+                    self.msg.config(text=f'{ok} uploaded to {ch}. Double-click a row to open it in YouTube Studio.'
+                                    + (f' Thumbnail not set: {bad_thumb[-1]}' if bad_thumb else ''))
             self.top.after(0, end)
         if wait: work()
         else: threading.Thread(target=work, daemon=True).start()
@@ -1840,6 +1894,7 @@ def cli(argv):
     try:
         used = {}
         opts = dict(vertical=a.vertical, sound='none' if a.silent else 'generated', capture='jpeg' if a.fast else 'png')
+        opts['lufs'] = target_lufs(scene, opts['sound'])   # the scene's shadow-lufs / shadow-folder Music, else -15
         if bc.is_blend(scene): bc.render(scene, out, preset, info=used, engine=a.engine, **opts)
         else: rc.render(scene, out, preset, info=used, **opts)
         pr = probe(out); exp = expected_size(preset, a.vertical)

@@ -14,6 +14,11 @@ import datetime, json, os, re, shutil, subprocess
 DURATION_WARN = 0.3        # s   |actual - expected| above this -> Warn
 DURATION_FAIL = 1.0        # s   above this -> Fail
 LUFS_MIN, LUFS_MAX = -17.0, -13.0   # integrated loudness window (Shadow normalises to -15)
+LUFS_TOL = 2.0   # with expect['lufs'] (the render's target: -14 songs, -15 the rest) the window is target +-2
+
+def lufs_window(expect):
+    t = (expect or {}).get('lufs')
+    return (t - LUFS_TOL, t + LUFS_TOL) if isinstance(t, (int, float)) else (LUFS_MIN, LUFS_MAX)
 TRUE_PEAK_MAX = -1.0       # dBTP
 BLACK_MAX = 0.5            # s   a black stretch longer than this -> Warn
 BLACK_IGNORE_START = 0.5   # s   black in the first half second (fade-in) does not count
@@ -81,7 +86,8 @@ def classify(measured, expect):
         else:
             lufs, tp = measured.get('lufs'), measured.get('tp')
             if lufs is None: warns.append('loudness not measured')
-            elif not (LUFS_MIN <= lufs <= LUFS_MAX): warns.append(f'loudness {lufs:.1f} LUFS, outside {LUFS_MIN:g}..{LUFS_MAX:g}')
+            elif not (lufs_window(expect)[0] <= lufs <= lufs_window(expect)[1]):
+                warns.append(f'loudness {lufs:.1f} LUFS, outside {lufs_window(expect)[0]:g}..{lufs_window(expect)[1]:g}')
             if tp is None: warns.append('true peak not measured')
             elif tp > TRUE_PEAK_MAX: warns.append(f'true peak {tp:.1f} dBTP, above {TRUE_PEAK_MAX:g}')
 
@@ -158,7 +164,8 @@ def write_report(mp4, result):
                  f"  resolution  {m.get('width', '-')}x{m.get('height', '-')}   (expected {e.get('width', '-')}x{e.get('height', '-')})",
                  f"  duration    {fmt(m.get('duration'), ' s')}   (expected {fmt(e.get('duration'), ' s')})",
                  f"  audio       {'yes' if m.get('has_audio') else 'no'}   (silent by design: {'yes' if e.get('silent') else 'no'})",
-                 f"  loudness    {fmt(m.get('lufs'), ' LUFS')}   (allowed {LUFS_MIN:g}..{LUFS_MAX:g})",
+                 f"  loudness    {fmt(m.get('lufs'), ' LUFS')}   (allowed {lufs_window(e)[0]:g}..{lufs_window(e)[1]:g}"
+                 + (f", target {e['lufs']:g})" if isinstance(e.get('lufs'), (int, float)) else ')'),
                  f"  true peak   {fmt(m.get('tp'), ' dBTP')}   (max {TRUE_PEAK_MAX:g})",
                  f"  black       {segs(m.get('black') or [])}   (max {BLACK_MAX:g} s, first {BLACK_IGNORE_START:g} s ignored)",
                  f"  frozen      {segs(m.get('freeze') or [])}   (max {FREEZE_MAX:g} s)"]

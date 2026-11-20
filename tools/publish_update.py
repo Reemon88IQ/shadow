@@ -11,7 +11,7 @@ except Exception: pass
 import updater
 
 TESTS = ['test_queue_logic', 'test_qc_parse', 'test_updater', 'test_theme', 'test_capture', 'test_make_words', 'test_narrate_build', 'test_audio_encode',
-         'test_qc_run', 'test_narrate_render', 'regression', 'test_queue_gui', 'test_queue_extras', 'test_assistant', 'test_youtube']   # quick ones first (the CLAUDE.md list)
+         'test_qc_run', 'test_narrate_render', 'regression', 'test_queue_gui', 'test_queue_extras', 'test_assistant', 'test_youtube', 'test_scene_check', 'test_loudness']   # quick ones first (the CLAUDE.md list)
 VER_RE = re.compile(r'^VERSION = "([^"]+)"', re.M)
 
 
@@ -62,6 +62,8 @@ def ask(prompt):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--dry-run', action='store_true'); ap.add_argument('--skip-tests', action='store_true')
+    ap.add_argument('--version', help='the new version (or the current one to finish a stopped run); skips that question')
+    ap.add_argument('--notes', help='the one-line release notes; skips that question')
     a = ap.parse_args()
     cur = current_version()
     print(f'Shadow publish update   (now v{cur}, GitHub: {updater.REPO})\n')
@@ -77,7 +79,8 @@ def main():
 
     sug = '.'.join(cur.split('.')[:-1] + [str(int(cur.split('.')[-1]) + 1)])
     for _ in range(3):   # Enter = the suggested number; a wrong entry is asked again
-        new = ask(f'New version (now {cur}; press Enter for {sug}): ') or sug
+        new = a.version or ask(f'New version (now {cur}; press Enter for {sug}): ') or sug
+        if a.version and new != cur and valid_new(new, cur): stop(f'--version {new}: {valid_new(new, cur)}')
         if new == cur or not valid_new(new, cur): break
         print(f'  {valid_new(new, cur)}')
     else: stop('no valid version entered')
@@ -91,7 +94,7 @@ def main():
     else:
         err = valid_new(new, cur)
         if err: stop(err)
-    notes = ask('What changed? (one line, shown in the update window): ') or f'Shadow {new}'
+    notes = a.notes or ask('What changed? (one line, shown in the update window): ') or f'Shadow {new}'
     files = changed_files()
     since = out('git', 'rev-list', '--count', f'v{cur}..HEAD').strip()   # commits since the last release (tag v<cur>)
     if not resume and not files and since == '0':
@@ -134,10 +137,10 @@ def commit_new_version(a, rc_path, new, cur, notes, files):
 
 def build_and_publish(new, notes, t0):
     print('[4/7] build Shadow.exe')
-    if not run('build_exe.bat < nul', shell=True) or not os.path.exists(os.path.join(ROOT, 'dist', 'Shadow.exe')): stop('build_exe.bat failed')
+    if not run(r'.\build_exe.bat < nul', shell=True) or not os.path.exists(os.path.join(ROOT, 'dist', 'Shadow.exe')): stop('build_exe.bat failed')
     print('[5/7] build the setup')
     setup = os.path.join(ROOT, 'dist', f'Shadow-{new}-Setup.exe')
-    if not run('build_installer.bat < nul', shell=True) or not os.path.exists(setup): stop('build_installer.bat failed')
+    if not run(r'.\build_installer.bat < nul', shell=True) or not os.path.exists(setup): stop('build_installer.bat failed')
     print('[6/7] public code')
     if not run([sys.executable, os.path.join('tools', 'publish_public.py'), '-m', f'Shadow {new}: {notes}', '--push']): stop('publishing the code failed')
     print('[7/7] GitHub release')

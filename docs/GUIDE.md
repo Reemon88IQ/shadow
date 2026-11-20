@@ -160,8 +160,10 @@ QC only adds information: it never changes or deletes your video.
 | **External file...** | One song or voice file you pick, for every scene in the batch. |
 | **Auto (file next to scene)** | Each scene uses its own file with the same name next to it: `<scene>.wav`, `.mp3`, `.m4a`, `.flac`, `.ogg` or `.aac` (first one found). So one batch can render several songs. No file → the scene's own sound + a warning. `<scene>.wav` together with `<scene>.words.json` counts as narration, not a song. |
 
-Song and voice files are loudness-matched to about **-15 LUFS** and limited so the true peak stays under -1 dBTP - measured
-*after* the AAC encode, so loud masters pass the quality check. Shadow only ever turns a track down, never up.
+Songs are loudness-matched to about **-14 LUFS** (YouTube's own playback level). That covers a song file used as the sound,
+or a scene in the Music folder. Narration and the scene's own sound are matched to **-15 LUFS**. A scene can choose its own
+level with `<meta name="shadow-lufs" content="-16">` (-24 to -9). The true peak always stays under -1 dBTP. All of this is
+measured *after* the AAC encode, so loud masters pass the quality check. Shadow only ever turns a track down, never up.
 
 ## Narration and captions
 
@@ -239,7 +241,10 @@ the expected size. `--fast` = Fast (JPEG) capture. `--engine` (for `.blend`): `s
 | Windows says "Windows protected your PC" | The installer is not code-signed. *More info* → *Run anyway*. |
 | "ffmpeg (missing)" right after installing it | Sign out and in once (or restart) so Windows refreshes the PATH, then *Re-check*. |
 | A row says **Error** | Read `<scene>_<time>.log` in its folder (or *Open log*). The first line of the error is also shown in the message box. |
-| "The scene did not load" | The scene never set `window.__ready = true` in time, or has a script error. Open it with **Preview** and look at the browser console, or run **Check frames**. |
+| "These scenes miss something Shadow needs" (before rendering) | Shadow read the scene and found no `window.__ready`, `window.seek(t)`, `window.DURATION` or `<canvas id="c">` (see [Make a scene](../README.md#make-a-scene)). **No** skips those scenes, **Yes** tries anyway (the check only reads the text, so a scene built in an unusual way can still work). |
+| "The scene cannot render: ..." | The scene loaded, but the part named in the message is missing or wrong (for example `DURATION` is text, not a number). |
+| "The scene did not load" | The scene never set `window.__ready = true` in time, or has a script error (shown in the message). Open it with **Preview** and look at the browser console, or run **Check frames**. |
+| "ffmpeg failed: ..." | The message shows ffmpeg's last 3 lines. A full disk or a broken song file are the usual causes. |
 | The video jumps or flickers | The scene is not a pure function of time (a real-time loop or `Math.random`). **Check frames** reports this. |
 | 9:16 looks squeezed | The scene does not read `h` - see [Shorts](#shorts-916). |
 | QC Warn: true peak / loudness | Usually a very loud master; Shadow already turns it down. Re-render with the current version; if it stays, open an issue with the `.qc.txt`. |

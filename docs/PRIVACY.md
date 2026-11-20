@@ -13,7 +13,7 @@ Shadow touches and where it goes.
 | Shadow starts | GitHub (api.github.com) | A request for the latest release number, to show "Update to vX.Y". No personal data. |
 | A scene loads web resources | The sites the scene itself names (for example a CDN for three.js or fonts) | Normal web requests made by the scene. |
 | You press **Sign in...** in the YouTube dialog | Google (accounts.google.com, oauth2.googleapis.com) | The standard Google sign-in. You type your password on Google's own page; Shadow never sees it. |
-| You press **Upload** | YouTube Data API (googleapis.com) | The video file you chose and its title, description, tags, category, privacy and "Made for Kids" setting. |
+| You press **Upload** | YouTube Data API (googleapis.com) | The video file you chose and its title, description, tags, category, privacy and "Made for Kids" setting, the "altered or synthetic content" label and publish time if set, and the thumbnail image if one is set. |
 | You use the Assistant panel | Anthropic, through your own installed Claude Code | Your chat messages. Only when you use that panel. |
 
 Nothing else is sent anywhere.

@@ -3,6 +3,21 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
+## 3.13
+- **YouTube upload, more from `metadata.txt`**: `AI: yes` marks the video as *altered or synthetic content* (YouTube's AI
+  label), the thumbnail Shadow saved (`<video>_thumb.jpg`, or `THUMBNAIL: cover.jpg`) is set on the video, and a `PUBLISH:`
+  line with a date and time (`Thu 19 Nov 2026, 5:00 AM Sydney time`, `2026-11-25 05:00`) schedules it. The dialog has a
+  Publish column and a checkbox for each. Scheduled videos only go public once your Google project has passed YouTube's audit.
+- **Songs at -14 LUFS**: a video whose sound is a song file (Sound *Auto* finds `<scene>.mp3` next to it, or *External
+  file*), or a scene in the Music folder, is now loudness-matched to -14 LUFS - YouTube's own playback level - instead of
+  -15. Narrated and generated sound stays at -15. A scene can set its own target with
+  `<meta name="shadow-lufs" content="-16">`. The QC check follows the target (target ±2).
+- **Clear messages when a scene cannot render**: before the queue starts, Shadow lists the scenes that never set
+  `window.__ready`, have no `window.seek(t)`, no `window.DURATION` or no `<canvas id="c">`, and asks whether to render
+  them anyway. A scene without `window.__ready` now fails at once instead of after a 3-minute wait, and the other parts
+  are checked as soon as the scene loads.
+- **ffmpeg errors show their last 3 lines** instead of one.
+
 ## 3.12
 - **Upload to YouTube** (**YouTube...** button): sign in once per channel in your browser, then upload the videos you just
   rendered - title, description (chapters), tags and Made for Kids from `metadata.txt`, Private by default, resumable with

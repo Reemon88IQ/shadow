@@ -32,6 +32,10 @@ the app is verified - choose *Advanced → Go to Shadow*.
    *see your channel*. Shadow keeps only a refresh token in `%USERPROFILE%\.shadow_youtube_tokens.json`.
 4. Choose the channel, check the titles, press **Upload**. Privacy is **Private** by default. Double-click a finished row
    (or **Open in Studio**) to check it in YouTube Studio, then schedule or publish it there.
+5. Checkboxes: **Altered or synthetic (AI) content** (set from `AI:` in metadata.txt), **Set thumbnail** and **Schedule**
+   (the *Publish* column shows the `PUBLISH:` time in your PC's time zone; a time already past uploads without a schedule).
+   A thumbnail YouTube refuses (custom thumbnails need a [verified channel](https://www.youtube.com/verify)) never stops the upload:
+   the row says *no thumbnail* and why.
 
 To remove Shadow's access: [myaccount.google.com/permissions](https://myaccount.google.com/permissions) → Shadow → Remove.
 
@@ -59,8 +63,17 @@ TAGS: synthwave, shorts
 AUDIENCE: Made for Kids = NO
 ```
 
-Optional fields: `CATEGORY:` (music, education, science, entertainment, film or a number; default music) and
-`PRIVACY:` (private, unlisted, public). Without a metadata.txt the title is made from the file name.
+Optional fields:
+
+| Field | What it does |
+|---|---|
+| `CATEGORY:` | music, education, science, entertainment, film or a number (default music) |
+| `PRIVACY:` | private, unlisted or public |
+| `AI: yes` / `AI: no` | YouTube's *altered or synthetic content* label (`status.containsSyntheticMedia`). Without it the dialog's checkbox decides (off by default) |
+| `THUMBNAIL: cover.jpg` | the thumbnail image, relative to metadata.txt (JPG/PNG, up to 2 MB). Without it Shadow uses `<video>_thumb.jpg` next to the video (saved when the scene sets `window.THUMBNAIL_T`). Shorts get one only from this field |
+| `PUBLISH:` | schedules the video when it holds a date **and** a time: `Thu 19 Nov 2026, 5:00 AM Sydney time`, `2026-11-25 05:00`, `2026-11-25T05:00+11:00`, `19 Nov 2026 9 pm UTC`. Zone words: Sydney, Melbourne, Baghdad, London, New York, UTC; none = this PC's zone. A Short's `PUBLISH: same time as the full video` takes the full video's time. Text without a date (`5:00 AM Sydney time`) is ignored, shown as *(not a date)* |
+
+Without a metadata.txt the title is made from the file name.
 YouTube's limits are applied: title 100 characters, description 5000 bytes, tags 500 characters.
 
 ## Command line
@@ -69,16 +82,18 @@ YouTube's limits are applied: title 100 characters, description 5000 bytes, tags
 python youtube.py signin
 python youtube.py channels
 python youtube.py upload "D:\Videos\Music\song\song.mp4" --meta metadata.txt --channel "Moon Shift" --privacy private
+python youtube.py upload song.mp4 --ai yes --thumbnail cover.jpg --publish "2026-11-25 05:00 Sydney"
 ```
 
 ## The API audit (to upload public videos)
 
 Apply with Google's [YouTube API Services audit and quota extension form](https://support.google.com/youtube/contact/yt_api_form),
-with a short screen recording of the sign-in and an upload. Until it is approved, uploads stay Private.
+with a short screen recording of the sign-in and an upload. Until it is approved, uploads stay Private - a scheduled video
+then stays Private at its time too.
 
 ## Quota
 
-The API has a free daily quota (10,000 units by default); an upload costs about 1,600 units, so roughly 6 uploads a day.
+The API has a free daily quota (10,000 units by default); an upload costs about 1,600 units, so roughly 6 uploads a day; setting a thumbnail costs 50 more.
 
 ## Privacy
 

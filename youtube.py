@@ -8,8 +8,9 @@ Note: until the Google Cloud project passes YouTube's API audit, YouTube locks e
   python youtube.py signin                                   sign in a channel (opens the browser)
   python youtube.py channels                                 list signed-in channels
   python youtube.py upload video.mp4 [--meta metadata.txt] [--channel "Moon Shift"] [--privacy private|unlisted|public]
+                    [--ai yes|no] [--thumbnail cover.jpg | --no-thumbnail] [--publish "2026-11-25 05:00 Sydney"]
 """
-import base64, hashlib, http.server, json, os, re, secrets, socket, sys, threading, time, urllib.error, urllib.parse, urllib.request, webbrowser
+import base64, datetime, hashlib, http.server, json, os, re, secrets, socket, sys, threading, time, urllib.error, urllib.parse, urllib.request, webbrowser
 
 HOME = os.path.expanduser('~')
 CLIENT_FILE = os.path.join(HOME, '.shadow_youtube_client.json')
@@ -19,6 +20,8 @@ AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 API = 'https://www.googleapis.com/youtube/v3'
 UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/videos'
+THUMB_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set'
+THUMB_MAX = 2 * 1024 * 1024   # YouTube: custom thumbnails up to 2 MB (JPG/PNG)
 CHUNK = 8 * 1024 * 1024
 PRIVACY = ('private', 'unlisted', 'public')
 CATEGORY = {'music': '10', 'education': '27', 'science': '28', 'entertainment': '24', 'film': '1'}
@@ -183,15 +186,87 @@ def access_token(channel_id, client=None):
 
 
 # ---------------------------------------------------------------- metadata.txt
-_FIELD = re.compile(r'^(TITLE|DESCRIPTION|TAGS|AUDIENCE|PUBLISH|CATEGORY|PRIVACY)\s*:\s*(.*)$', re.I)
+_FIELD = re.compile(r'^(TITLE|DESCRIPTION|TAGS|AUDIENCE|PUBLISH|CATEGORY|PRIVACY|AI|THUMBNAIL)\s*:\s*(.*)$', re.I)
+_MONTHS = {m: i + 1 for i, m in enumerate(('jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'))}
+# zone words written after the time ("5:00 AM Sydney time"); none -> the PC's own time zone
+_ZONES = {'sydney': 'Australia/Sydney', 'melbourne': 'Australia/Melbourne', 'aest': 'Australia/Sydney', 'aedt': 'Australia/Sydney',
+          'baghdad': 'Asia/Baghdad', 'iraq': 'Asia/Baghdad', 'london': 'Europe/London', 'new york': 'America/New_York',
+          'utc': 'UTC', 'gmt': 'UTC'}
+
+
+def _sydney_offset(d):
+    """Fallback when zoneinfo has no data (an exe without tzdata): Sydney/Melbourne is UTC+11 from the first Sunday of October
+    02:00 to the first Sunday of April 03:00 (local time), else UTC+10."""
+    def first_sunday(y, m): return datetime.datetime(y, m, 1 + (6 - datetime.date(y, m, 1).weekday()) % 7)
+    on, off = first_sunday(d.year, 10).replace(hour=2), first_sunday(d.year, 4).replace(hour=3)
+    return 11 if (d >= on or d < off) else 10
+
+
+def _zone(name):
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+    except Exception:
+        return None
+
+
+def parse_publish(text):
+    """PUBLISH: text -> RFC 3339 UTC ('2026-11-18T18:00:00Z'), or None when it holds no full date + time.
+    Understands '2026-11-25 05:00', '2026-11-25T05:00:00+11:00', 'Thu 19 Nov 2026, 5:00 AM Sydney time', 'Nov 19 2026 17:30 UTC'.
+    An offset or a zone word (Sydney, Baghdad, UTC...) after the time sets the zone, else the PC's own zone."""
+    low = (text or '').strip().lower()
+    if not low: return None
+    m = re.search(r'(\d{4})-(\d{1,2})-(\d{1,2})[ t,]+(\d{1,2}):(\d{2})(?::(\d{2}))?', low)
+    if m:
+        y, mo, d, h, mi, sec = (int(x or 0) for x in m.groups())
+        rest = low[m.end():]
+    else:
+        dm = (re.search(r'\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3})[a-z]*\.?,?\s+(\d{4})\b', low)
+              or re.search(r'\b([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b', low))
+        if not dm: return None
+        g = dm.groups()
+        if g[0].isdigit(): d, mon, y = int(g[0]), g[1], int(g[2])
+        else: mon, d, y = g[0], int(g[1]), int(g[2])
+        if mon not in _MONTHS: return None
+        mo = _MONTHS[mon]
+        tail = low[dm.end():]
+        tm = re.search(r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?(?![\d:])', tail)
+        if not tm or (tm.group(2) is None and tm.group(3) is None): return None
+        h, mi, sec = int(tm.group(1)), int(tm.group(2) or 0), 0
+        ap = (tm.group(3) or '').replace('.', '')
+        if ap == 'pm' and h < 12: h += 12
+        if ap == 'am' and h == 12: h = 0
+        rest = tail[tm.end():]
+    try: local = datetime.datetime(y, mo, d, h, mi, sec)
+    except ValueError: return None
+    off = re.match(r'\s*(z\b|[+-]\d{2}:?\d{2}\b)', rest)
+    if off:
+        o = off.group(1)
+        tz = datetime.timezone.utc if o == 'z' else datetime.timezone(
+            (1 if o[0] == '+' else -1) * datetime.timedelta(hours=int(o[1:3]), minutes=int(o[-2:])))
+        aware = local.replace(tzinfo=tz)
+    else:
+        zname = next((v for k, v in _ZONES.items() if re.search(r'\b' + k + r'\b', rest)), None)
+        zi = _zone(zname) if zname else None
+        if zi is not None: aware = local.replace(tzinfo=zi)
+        elif zname in ('Australia/Sydney', 'Australia/Melbourne'):
+            aware = local.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=_sydney_offset(local))))
+        elif zname == 'Asia/Baghdad': aware = local.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=3)))
+        elif zname: aware = local.replace(tzinfo=datetime.timezone.utc)
+        else: aware = local.astimezone()   # the PC's own zone
+    return aware.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
 
 def parse_metadata(text):
     """metadata.txt -> {'full': {...}, 'short': {...}} (or {'full': {...}} without sections). Each: title, description,
-    tags (list), kids (bool|None), category (id|None), privacy (or None). Sections start with a line '=== ... SHORT ... ==='
-    (short) or any other '=== ... ===' (full). DESCRIPTION runs until the next field line."""
+    tags (list), kids (bool|None), category (id|None), privacy (or None), ai (bool|None; AI: yes/no = altered or synthetic
+    content), thumbnail (path text or ''), publish (the PUBLISH text) and publish_at (RFC 3339 UTC or None; a Short whose PUBLISH
+    says 'same' takes the full video's). Sections start with a line '=== ... SHORT ... ===' (short) or any other '=== ... ==='
+    (full). DESCRIPTION runs until the next field line."""
     out, cur, key = {}, None, None
     def sec(name):
-        return out.setdefault(name, dict(title='', description='', tags=[], kids=None, category=None, privacy=None, _desc=[]))
+        return out.setdefault(name, dict(title='', description='', tags=[], kids=None, category=None, privacy=None, ai=None,
+                                         thumbnail='', publish='', publish_at=None, _desc=[]))
     for raw in (text or '').splitlines():
         line = raw.rstrip()
         m = re.match(r'^\s*===+\s*(.*?)\s*===+\s*$', line)
@@ -207,11 +282,18 @@ def parse_metadata(text):
             elif key == 'AUDIENCE': cur['kids'] = bool(re.search(r'kids\s*=\s*yes|\byes\b', val, re.I)) if re.search(r'yes|no', val, re.I) else None
             elif key == 'CATEGORY': cur['category'] = CATEGORY.get(val.lower(), val if val.isdigit() else None)
             elif key == 'PRIVACY': cur['privacy'] = val.lower() if val.lower() in PRIVACY else None
+            elif key == 'AI':
+                yn = re.match(r'\s*(yes|y|true|1|no|n|false|0)\b', val, re.I)
+                cur['ai'] = (yn.group(1).lower() in ('yes', 'y', 'true', '1')) if yn else None
+            elif key == 'THUMBNAIL': cur['thumbnail'] = val.strip('"')
+            elif key == 'PUBLISH': cur['publish'] = val; cur['publish_at'] = parse_publish(val)
             if key != 'DESCRIPTION': key = None
             continue
         if key == 'DESCRIPTION': cur['_desc'].append(line)
     for s in out.values():
         s['description'] = '\n'.join(s.pop('_desc')).strip()
+    sh, fu = out.get('short'), out.get('full')
+    if sh and fu and not sh['publish_at'] and re.search(r'\bsame\b', sh['publish'], re.I): sh['publish_at'] = fu['publish_at']
     return out
 
 
@@ -230,9 +312,29 @@ def metadata_for(mp4, candidates=()):
     return None, None
 
 
+def find_thumbnail(mp4, meta=None, meta_path=None):
+    """The image to set as the video's thumbnail, or None: THUMBNAIL: in metadata.txt (relative to that file), else the newest
+    <video>_thumb.jpg / _thumb_N.jpg next to the mp4 (Shadow writes it when the scene sets window.THUMBNAIL_T).
+    A Short gets one only when its section names THUMBNAIL: (YouTube takes Shorts thumbnails from the video itself)."""
+    t = (meta or {}).get('thumbnail')
+    if t:
+        p = t if os.path.isabs(t) else os.path.join(os.path.dirname(meta_path or mp4), t)
+        return p if os.path.isfile(p) else None
+    base = os.path.splitext(mp4)[0]
+    if base.lower().endswith('_shorts'): return None
+    folder, name = os.path.split(base)
+    try: files = os.listdir(folder or '.')
+    except OSError: return None
+    pat = re.compile(re.escape(name) + r'_thumb(_\d+)?\.(jpe?g|png)$', re.I)
+    hits = [os.path.join(folder, f) for f in files if pat.match(f)]
+    return max(hits, key=os.path.getmtime) if hits else None
+
+
 # ---------------------------------------------------------------- upload
-def video_body(title, description='', tags=(), privacy='private', kids=False, category='10', publish_at=None):
-    """The videos.insert JSON (pure). YouTube limits: title 100 chars, description 5000 bytes, tags 500 chars total."""
+def video_body(title, description='', tags=(), privacy='private', kids=False, category='10', publish_at=None, ai=None):
+    """The videos.insert JSON (pure). YouTube limits: title 100 chars, description 5000 bytes, tags 500 chars total.
+    ai True/False -> status.containsSyntheticMedia (YouTube's 'altered or synthetic content' label); None leaves it unset.
+    publish_at (RFC 3339) schedules the video; YouTube needs it Private until then."""
     title = (title or '').strip()
     if not title: raise YouTubeError('a title is needed')
     if privacy not in PRIVACY: raise YouTubeError(f'privacy must be one of {", ".join(PRIVACY)}')
@@ -244,6 +346,7 @@ def video_body(title, description='', tags=(), privacy='private', kids=False, ca
         t = t.replace('<', '').replace('>', '').strip(); cost = len(t) + (2 if ' ' in t else 0) + (1 if keep else 0)
         if t and total + cost <= 500: keep.append(t); total += cost
     status = dict(privacyStatus=privacy, selfDeclaredMadeForKids=bool(kids))
+    if ai is not None: status['containsSyntheticMedia'] = bool(ai)
     if publish_at: status.update(privacyStatus='private', publishAt=publish_at)
     return dict(snippet=dict(title=title, description=desc, tags=keep, categoryId=str(category or '10')), status=status)
 
@@ -292,16 +395,43 @@ def upload(mp4, channel_id, body, progress=lambda done, total: None, cancel=None
             if st == 308: done = int(rng.split('-')[1]) + 1 if rng else 0
 
 
-def upload_video(mp4, channel=None, meta=None, privacy='private', candidates=(), progress=lambda d, t: None, cancel=None, overrides=None):
+def set_thumbnail(video_id, channel_id, image):
+    """thumbnails.set for an uploaded video (50 quota units). The youtube.upload scope covers it (no new sign-in).
+    Raises YouTubeError (file too big, channel not verified for custom thumbnails, ...)."""
+    if not os.path.isfile(image): raise YouTubeError(f'thumbnail not found: {image}')
+    size = os.path.getsize(image)
+    if size > THUMB_MAX: raise YouTubeError(f'thumbnail is {size / 1048576:.1f} MB; YouTube takes up to 2 MB')
+    ctype = 'image/png' if image.lower().endswith('.png') else 'image/jpeg'
+    with open(image, 'rb') as f: data = f.read()
+    st, _, body = _req(THUMB_URL + '?' + urllib.parse.urlencode(dict(videoId=video_id)), data=data, method='POST',
+                       headers={'Authorization': 'Bearer ' + access_token(channel_id), 'Content-Type': ctype, 'Content-Length': str(size)})
+    if st != 200:
+        e = _api_error(st, body)
+        raise YouTubeError(f'{e} (custom thumbnails need a verified channel: youtube.com/verify)') if st == 403 else e
+
+
+def upload_video(mp4, channel=None, meta=None, privacy='private', candidates=(), progress=lambda d, t: None, cancel=None, overrides=None,
+                 meta_path=None, thumbnail=True, schedule=True):
     """One call for the app / CLI / MCP: channel (title or id), metadata from `meta` (dict) or metadata.txt (next to the mp4 or
-    in candidates), overrides (title, description, tags, kids, category, privacy) win. -> upload() result + title, channel."""
+    in candidates), overrides (title, description, tags, kids, category, privacy, ai, publish_at, thumbnail) win.
+    thumbnail: True = find_thumbnail(), a path = that image, False = none. schedule=False ignores publish_at; a time already
+    past is ignored too (the video is uploaded unscheduled).
+    -> upload() result + title, channel, publish_at, thumb ('set' / None / 'error: ...'; a failed thumbnail never fails the upload)."""
     ch = find_channel(channel)
-    if meta is None: meta, _ = metadata_for(mp4, candidates)
+    if meta is None: meta, meta_path = metadata_for(mp4, candidates)
     m = dict(meta or {}); m.update({k: v for k, v in (overrides or {}).items() if v is not None})
     title = m.get('title') or os.path.splitext(os.path.basename(mp4))[0].replace('_shorts', '').replace('-', ' ').replace('_', ' ').title()
-    body = video_body(title, m.get('description', ''), m.get('tags', ()), m.get('privacy') or privacy, bool(m.get('kids')), m.get('category') or '10')
+    when = m.get('publish_at') if schedule else None
+    if when and when <= time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 300)): when = None
+    body = video_body(title, m.get('description', ''), m.get('tags', ()), m.get('privacy') or privacy, bool(m.get('kids')),
+                      m.get('category') or '10', publish_at=when, ai=m.get('ai'))
+    img = (thumbnail if isinstance(thumbnail, str) else find_thumbnail(mp4, m, meta_path)) if thumbnail else None
     r = upload(mp4, ch['id'], body, progress, cancel)
-    r.update(title=body['snippet']['title'], channel=ch['title']); return r
+    r.update(title=body['snippet']['title'], channel=ch['title'], publish_at=body['status'].get('publishAt'), thumb=None)
+    if img:
+        try: set_thumbnail(r['id'], ch['id'], img); r['thumb'] = 'set'
+        except YouTubeError as e: r['thumb'] = f'error: {e}'
+    return r
 
 
 # ---------------------------------------------------------------- CLI
@@ -311,6 +441,10 @@ def main(argv=None):
     sub.add_parser('signin'); sub.add_parser('channels')
     u = sub.add_parser('upload'); u.add_argument('mp4'); u.add_argument('--meta'); u.add_argument('--channel')
     u.add_argument('--privacy', default='private', choices=PRIVACY)
+    u.add_argument('--ai', choices=('yes', 'no'), help='altered or synthetic content label (default: AI: in metadata.txt)')
+    u.add_argument('--thumbnail', help='thumbnail image (default: THUMBNAIL: in metadata.txt or <video>_thumb.jpg)')
+    u.add_argument('--no-thumbnail', action='store_true')
+    u.add_argument('--publish', help='schedule, e.g. "2026-11-25 05:00 Sydney" (default: PUBLISH: in metadata.txt)')
     a = ap.parse_args(argv)
     try:
         if a.cmd == 'signin': c = sign_in(); print(f"signed in: {c['title']} ({c['id']})")
@@ -323,8 +457,15 @@ def main(argv=None):
             if a.meta:
                 with open(a.meta, encoding='utf-8-sig') as f: d = parse_metadata(f.read())
                 meta = d.get('short' if a.mp4.lower().endswith('_shorts.mp4') else 'full') or d.get('full')
-            r = upload_video(a.mp4, a.channel, meta, a.privacy, progress=prog)
+            ov = dict(ai={'yes': True, 'no': False}.get(a.ai))
+            if a.publish:
+                ov['publish_at'] = parse_publish(a.publish)
+                if not ov['publish_at']: print(f'ERROR: --publish: no date and time in "{a.publish}"'); return 1
+            r = upload_video(a.mp4, a.channel, meta, a.privacy, progress=prog, overrides=ov, meta_path=a.meta,
+                             thumbnail=False if a.no_thumbnail else (a.thumbnail or True))
             print(f"uploaded to {r['channel']}: {r['title']} [{r['privacy']}]\n  {r['url']}\n  {r['studio']}")
+            if r.get('publish_at'): print(f"  scheduled: {r['publish_at']} (UTC)")
+            if r.get('thumb'): print(f"  thumbnail: {r['thumb']}")
     except YouTubeError as e:
         print(f'ERROR: {e}'); return 1
     return 0

@@ -112,7 +112,7 @@ class _Blender:
 
 def render(blend_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel=None, max_frames=None, vertical=False,
            sound='generated', audio_file=None, info=None, capture='png', engine='scene', device='auto', blender=None,
-           allow_scripts=False, **_ignored):
+           allow_scripts=False, lufs=None, **_ignored):
     """Same signature and contract as render_core.render, for .blend files (extra: engine, device, blender exe path,
     allow_scripts = run Python drivers/scripts stored in the .blend; off by default). progress stages: load, audio, frames,
     encode, done. info gets sound / scene_duration / duration / capture / thumbnail_t like render_core, plus 'blender'
@@ -145,7 +145,7 @@ def render(blend_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel
         n = int(meta['frames'])
         if sound == 'generated' and not scene_wav: sound = 'none'   # no sound strips / speakers: silent, like an HTML scene without SOUND
         if info is not None:
-            info.update(sound=sound, capture=capture, scene_duration=meta['duration'], duration=n / fps, blender=meta,
+            info.update(sound=sound, capture=capture, lufs=None if sound == 'none' else (rc.DEFAULT_LUFS if lufs is None else lufs), scene_duration=meta['duration'], duration=n / fps, blender=meta,
                         warnings=list(meta.get('warnings') or []))
             th = meta.get('thumbnail_t')
             if th is not None: info['thumbnail_t'] = max(0.0, min(float(th), n / fps - 1 / fps))
@@ -153,12 +153,12 @@ def render(blend_path, out_mp4, preset, fps=30, progress=lambda *_: None, cancel
         aud = os.path.join(tmp, 'audio.wav')
         if sound == 'generated':
             progress('audio', 0, 1)
-            rc._ff([ffmpeg, '-y', '-i', scene_wav, '-af', rc.LOUDNORM + ',apad', '-ar', '48000', '-t', str(n / fps), aud])
+            rc._ff([ffmpeg, '-y', '-i', scene_wav, '-af', rc.loudnorm_af(lufs) + ',apad', '-ar', '48000', '-t', str(n / fps), aud])
         elif sound == 'file':
             if not audio_file or not os.path.exists(audio_file): raise RuntimeError('Audio file not found')
             progress('audio', 0, 1)
-            rc._ff([ffmpeg, '-y', '-i', audio_file, '-af', rc.EXT_AUDIO_AF, '-ar', '48000', '-t', str(n / fps), aud])
-        if sound != 'none': aud = rc.finalize_audio(ffmpeg, aud, tmp)
+            rc._ff([ffmpeg, '-y', '-i', audio_file, '-af', rc.ext_audio_af(lufs), '-ar', '48000', '-t', str(n / fps), aud])
+        if sound != 'none': aud = rc.finalize_audio(ffmpeg, aud, tmp, target=lufs)
         # 2) frames -> ffmpeg, the same encode as render_core
         cmd = [ffmpeg, '-y', '-hide_banner', '-nostats', '-loglevel', 'error',
                '-f', 'image2pipe', '-c:v', rc.CAPTURE_CODEC[capture], '-framerate', str(fps), '-i', '-']
