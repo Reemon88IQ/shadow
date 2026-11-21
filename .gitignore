@@ -7,6 +7,7 @@ dist/
 build/
 kit_captions/run/*.mp4
 Shadow.spec
+Seekframe.spec
 scenes/*/
 
 # YouTube upload: OAuth client + tokens live in %USERPROFILE%, never in the repo

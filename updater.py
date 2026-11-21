@@ -6,7 +6,7 @@ render_core.VERSION it offers to download the setup (size + sha256 checked) and 
 SHADOW_UPDATE_URL overrides the API url (tests point it at a local server)."""
 import hashlib, json, os, re, urllib.request
 
-REPO = 'Reemon88IQ/seekframe'   # the public GitHub repo (owner/name) whose releases are checked
+REPO = 'ShadowStudioApps/seekframe'   # since 3.26 (Shadow Studio's organization; the old Reemon88IQ/shadow and /seekframe redirect); the public GitHub repo (owner/name) whose releases are checked
 API = 'https://api.github.com/repos/{repo}/releases/latest'
 ASSET_RE = re.compile(r'^(Seekframe|Shadow)-[\d.]+-Setup\.exe$', re.I)   # Seekframe since 3.25 (the app was called Shadow before)
 

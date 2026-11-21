@@ -42,7 +42,7 @@ def main():
     x = 434
     for t in ('4K · 30 fps', '16:9 + 9:16', 'AI', '11 languages', 'QC'):
         x = chip(d, x, 420, t, F('r', 24))
-    d.text((80, 580), 'Free Windows app  \u00b7  github.com/Reemon88IQ/seekframe', font=F('r', 26), fill=(150, 144, 170), anchor='lm')
+    d.text((80, 580), 'Free Windows app  \u00b7  github.com/ShadowStudioApps/seekframe', font=F('r', 26), fill=(150, 144, 170), anchor='lm')
     im.save(os.path.join(ROOT, 'docs', 'social_preview.png'), optimize=True)
     print('wrote docs/banner.png and docs/social_preview.png')
 

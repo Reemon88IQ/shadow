@@ -51,4 +51,4 @@ videos stay where you put them.
 
 ## Contact
 
-Questions or requests: open an issue at [github.com/Reemon88IQ/seekframe/issues](https://github.com/Reemon88IQ/seekframe/issues).
+Questions or requests: open an issue at [github.com/ShadowStudioApps/seekframe/issues](https://github.com/ShadowStudioApps/seekframe/issues).

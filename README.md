@@ -3,10 +3,10 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Reemon88IQ/seekframe?label=download&color=ff7a30"></a>
-  <a href="../../releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/Reemon88IQ/seekframe/total?color=6b5bd2"></a>
+  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/ShadowStudioApps/seekframe?label=download&color=ff7a30"></a>
+  <a href="../../releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/ShadowStudioApps/seekframe/total?color=6b5bd2"></a>
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0b0a18">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/Reemon88IQ/seekframe?color=2ea043"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/ShadowStudioApps/seekframe?color=2ea043"></a>
   <a href="docs/MCP.md"><img alt="Claude MCP" src="https://img.shields.io/badge/Claude-MCP%20ready-d97757"></a>
 </p>
 
@@ -14,7 +14,7 @@
   <b>Free Windows app that turns code-made scenes into finished videos.</b><br>
   Write (or generate) a scene as one <code>.html</code> file - or build it in Blender, or let Seekframe's AI make it from
   one sentence - drop it in Seekframe, and get a clean, frame-exact MP4 with sound, for YouTube (16:9) and Shorts (9:16).<br>
-  In 11 languages. <i>Seekframe was called Shadow until version 3.24.</i>
+  In 11 languages. <i>Seekframe was called Shadow until version 3.24.</i><br>Made by <a href="https://github.com/ShadowStudioApps"><b>Shadow Studio</b></a>.
 </p>
 
 <p align="center">
@@ -131,7 +131,7 @@ after your yes), without opening the window. It is local and free
 (no API keys, nothing leaves your PC). It runs from a copy of this repository with Python, not from the installed exe:
 
 ```
-git clone https://github.com/Reemon88IQ/seekframe C:\Seekframe
+git clone https://github.com/ShadowStudioApps/seekframe C:\Seekframe
 python -m pip install "mcp>=2" playwright pillow tkinterdnd2 sv-ttk darkdetect numpy
 claude mcp add shadow --scope user -- python C:\Seekframe\tools\mcp_server.py
 ```

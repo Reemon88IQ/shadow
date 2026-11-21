@@ -11,7 +11,7 @@ the same as running Seekframe from source. Below, `C:\Seekframe` stands for the 
 
 ## Set it up (once)
 ```
-git clone https://github.com/Reemon88IQ/seekframe C:\Seekframe
+git clone https://github.com/ShadowStudioApps/seekframe C:\Seekframe
 python -m pip install "mcp>=2" playwright pillow tkinterdnd2 sv-ttk darkdetect numpy
 ```
 Chrome: install Google Chrome normally (Seekframe renders with the installed Chrome). ffmpeg: `winget install -e --id Gyan.FFmpeg`
