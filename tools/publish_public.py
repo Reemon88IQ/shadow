@@ -55,8 +55,8 @@ def main():
         print('public repo already up to date')
     else:
         ver = next((l.split('"')[1] for l in open(os.path.join(a.dir, 'render_core.py'), encoding='utf-8') if l.startswith('VERSION')), '?')
-        git('commit', '-q', '-m', a.message or f'Shadow {ver}', cwd=a.dir)
-        print(f'committed {len(files)} files in {a.dir} (Shadow {ver})')
+        git('commit', '-q', '-m', a.message or f'Seekframe {ver}', cwd=a.dir)
+        print(f'committed {len(files)} files in {a.dir} (Seekframe {ver})')
     if a.push:
         subprocess.run(['git', 'push', '-u', 'origin', 'main'], cwd=a.dir, check=True)
 
