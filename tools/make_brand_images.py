@@ -31,7 +31,7 @@ def main():
     d.text((510, 150), 'Shadow', font=F('b', 120), fill=TXT, anchor='lm')
     d.text((514, 250), 'HTML & Blender scenes  \u2192  MP4 for YouTube and Shorts', font=F('s', 40), fill=ORANGE, anchor='lm')
     x = 514
-    for t in ('1080p \u00b7 30 fps \u00b7 sound', '16:9 + 9:16', 'quality check', 'Claude (MCP)', 'free \u00b7 offline'):
+    for t in ('4K \u00b7 30 fps \u00b7 sound', '16:9 + 9:16', 'AI: idea \u2192 video', '11 languages', 'free'):
         x = chip(d, x, 318, t, F('r', 24))
     im.save(os.path.join(ROOT, 'docs', 'banner.png'), optimize=True)
     # social preview 1280x640
@@ -40,7 +40,7 @@ def main():
     d.text((434, 300), 'HTML & Blender scenes \u2192 MP4', font=F('s', 44), fill=ORANGE, anchor='lm')
     d.text((434, 360), 'for YouTube videos and Shorts', font=F('r', 34), fill=SUB, anchor='lm')
     x = 434
-    for t in ('1080p 30 fps', '16:9 + 9:16', 'QC', 'Claude MCP'):
+    for t in ('4K · 30 fps', '16:9 + 9:16', 'AI', '11 languages', 'QC'):
         x = chip(d, x, 420, t, F('r', 24))
     d.text((80, 580), 'Free Windows app  \u00b7  github.com/Reemon88IQ/shadow', font=F('r', 26), fill=(150, 144, 170), anchor='lm')
     im.save(os.path.join(ROOT, 'docs', 'social_preview.png'), optimize=True)

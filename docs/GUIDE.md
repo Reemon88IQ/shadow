@@ -48,6 +48,8 @@ The list at the top of the window (next to *Light / Dark*) sets the language of 
 Windows display language when Shadow has it and English otherwise. Shadow asks to restart and opens in the new language.
 Only what you read changes: settings, projects, file names and the log stay the same in every language.
 
+<img src="screenshot_arabic.png" alt="Shadow in Arabic" width="70%">
+
 ## The window
 
 **Top bar**
@@ -213,6 +215,8 @@ Shadow checks each scene and asks what to do with scenes that do not (they would
 Shadow can hand work to Claude through **your Claude subscription** and the installed Claude Code (the same as the
 Assistant panel; it refuses API keys, so nothing is billed per use). Claude can read files, and it can change only the
 one file a job is about. It cannot run programs or open web pages.
+
+<img src="screenshot_ai_new.png" alt="New video (AI)" width="49%"> <img src="screenshot_ai_fix.png" alt="AI... Fix the scene" width="49%">
 
 **New video (AI)...** (top bar)
 1. Write the idea in any language, and pick a **Style** and a **Length**.

@@ -969,7 +969,7 @@ class App(Root):
                 with open(f, encoding='utf-8', errors='replace') as fh:
                     if narrate_module().is_narrated(fh.read()): self.embedded.add(f)
             except Exception: pass
-            self.rows[f] = self.tree.insert('', 'end', values=(self._row_name(f), 'Queued', '—', '', '', ''))
+            self.rows[f] = self.tree.insert('', 'end', values=(self._row_name(f), i18n.status('Queued'), '—', '', '', ''))
             self._auto_narration(f)
             self._refresh_name(f)
             if sound_mode(self.snd.get()) == 'auto':

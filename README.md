@@ -12,8 +12,9 @@
 
 <p align="center">
   <b>Free Windows app that turns code-made scenes into finished videos.</b><br>
-  Write (or generate) a scene as one <code>.html</code> file - or build it in Blender - drop it in Shadow,
-  and get a clean, frame-exact MP4 with sound, for YouTube (16:9) and Shorts (9:16).
+  Write (or generate) a scene as one <code>.html</code> file - or build it in Blender, or let Shadow's AI make it from
+  one sentence - drop it in Shadow, and get a clean, frame-exact MP4 with sound, for YouTube (16:9) and Shorts (9:16).<br>
+  In 11 languages.
 </p>
 
 <p align="center">
@@ -66,11 +67,22 @@ Every button, option, output file and QC check is explained in the **[user guide
 | **Claude can run it** | A local MCP server lets Claude render, follow progress, preview frames, read QC reports and upload to YouTube (it shows you a preview first and uploads only after your yes). Works with other MCP clients too (Gemini CLI, Cursor, VS Code, ...). [Guide](docs/MCP.md) |
 | **Assistant panel** | Ask in plain words inside the app ("render this folder and check the quality") and watch Claude do it. Runs on your Claude subscription through Claude Code, no API key. [Guide](docs/ASSISTANT.md) |
 | **Safe and tidy** | Each scene gets its own output folder; nothing is ever overwritten (`_2`, `_3`); failed renders leave a log. |
-| **Free and offline** | No Shadow account, no paid services. Nothing leaves your PC unless you press *Upload* (to your own YouTube channel). Only your scenes' own CDN links (e.g. three.js) need the internet. |
+| **Free and offline** | No Shadow account, no paid services. Rendering runs on your PC; nothing leaves it unless you press *Upload* (to your own YouTube channel) or one of the AI buttons (through your own Claude Code - see the [privacy policy](docs/PRIVACY.md)). Only your scenes' own CDN links (e.g. three.js) need the internet. |
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Shadow 3.16, dark theme: a song video and its Short in the queue, with the Project and Self-test buttons" width="49%">
-  <img src="docs/screenshot_light.png" alt="Shadow 3.16, light theme" width="49%">
+  <img src="docs/screenshot.png" alt="Shadow 3.23, dark theme: a song video and its Short in the queue, with New video (AI), the language list and the AI... button" width="49%">
+  <img src="docs/screenshot_light.png" alt="Shadow 3.23, light theme" width="49%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshot_ai_new.png" alt="New video (AI): an idea, a style and a length; Claude writes the narration and the scene, Kokoro makes the English voice" width="49%">
+  <img src="docs/screenshot_ai_fix.png" alt="AI... Fix the scene: the problems Shadow found plus your own words; Claude fixes a copy, Shadow checks it, you press Apply" width="49%">
+  <br><sub><b>New video (AI)</b> makes a narrated, captioned scene from one idea; <b>AI...</b> fixes a scene or writes its YouTube text - <a href="docs/GUIDE.md#smart-shadow-ai">how it works</a>.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/screenshot_arabic.png" alt="Shadow in Arabic: every button, option and status translated" width="62%">
+  <br><sub>The same window in Arabic - one of 11 languages (the list at the top; Auto follows Windows).</sub>
 </p>
 
 <p align="center">

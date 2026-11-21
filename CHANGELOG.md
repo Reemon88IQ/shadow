@@ -3,10 +3,22 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
+## 3.24
+- New README pictures (New video (AI), the AI window, Shadow in Arabic) and an updated banner; the privacy policy now
+  lists what the AI buttons send (to Anthropic, through your own Claude Code).
+- The AI windows use the app's own font instead of a typewriter font, and new rows say *Queued* in your language.
+
+## 3.23
+- The release that carries the 3.22 fix below (no other change).
+
 ## 3.22
 - **Fix: changing the language crashed the restarted Shadow** ("Failed to execute script pyi_rth_pkgres", then "Failed to
   remove temporary directory"). The new Shadow was started inside the closing one's temporary folder, which Windows was
   deleting at that moment. It now starts as its own, independent copy (the same fix the updater already had).
+
+## 3.21
+- The first release with everything in 3.18, 3.19 and 3.20 below: video + song, Smart Shadow (New video (AI), AI...) and
+  the 11 languages.
 
 ## 3.20
 - **Shadow in your language**: English, العربية, 中文, हिन्दी, Español, Français, Português, Русский, Bahasa Indonesia,

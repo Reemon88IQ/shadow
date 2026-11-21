@@ -1,6 +1,6 @@
 # Shadow privacy policy
 
-*Last updated: 19 November 2026*
+*Last updated: 21 November 2026*
 
 Shadow is a free, open-source Windows desktop app that renders video scenes to MP4 files on your own computer and can
 upload them to your own YouTube channel. It has no servers, no accounts and no analytics. This page explains what data
@@ -15,8 +15,11 @@ Shadow touches and where it goes.
 | You press **Sign in...** in the YouTube dialog | Google (accounts.google.com, oauth2.googleapis.com) | The standard Google sign-in. You type your password on Google's own page; Shadow never sees it. |
 | You press **Upload** | YouTube Data API (googleapis.com) | The video file you chose and its title, description, tags, category, privacy and "Made for Kids" setting, the "altered or synthetic content" label and publish time if set, and the thumbnail image if one is set. |
 | You use the Assistant panel | Anthropic, through your own installed Claude Code | Your chat messages. Only when you use that panel. |
+| You press **Make the video** in *New video (AI)* | Anthropic, through your own installed Claude Code | Your idea and the style and length you picked; Claude then reads the template scene and the narration it wrote in the new folder. The voice is made on your PC (Kokoro) and sends nothing. |
+| You press **Fix the scene** in *AI...* | Anthropic, through your own installed Claude Code | The problems shown in the window (including your own words), the scene file and the files it loads that Claude chooses to read. |
+| You press **Write YouTube text** in *AI...* | Anthropic, through your own installed Claude Code | A picture of 12 frames of that video, its file name, your note and the text of its scene. No YouTube or Google data is sent. |
 
-Nothing else is sent anywhere.
+Nothing else is sent anywhere. The AI features run only when you press their buttons, use your own Claude subscription, and are covered by [Anthropic's privacy policy](https://www.anthropic.com/legal/privacy).
 
 ## YouTube and Google user data
 
