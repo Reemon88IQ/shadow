@@ -59,7 +59,7 @@ try:
     a.preset.set('Draft (fast, 720p)'); a.fmt.set(app.FORMAT_AUTO); a.capture.set(list(app.CAPTURES)[1]); a.snd.set(app.SOUNDS[3])
     a.folder_choice.set(app.FOLDER_NONE); a.out_dir.set(os.path.join(TMP, 'renders')); a.skip_done.set(False)
     saved = a.save_project(P)
-    check('P2 Save project: file written, title shows the project', saved == P and os.path.isfile(P) and a.title() == 'Shadow - episode', a.title())
+    check('P2 Save project: file written, title shows the project', saved == P and os.path.isfile(P) and a.title() == 'Seekframe - episode', a.title())
     a.clear(); a.preset.set('Best (1080p, 64 samples)'); a.fmt.set('16:9 (YouTube)'); a.capture.set('Best quality (PNG)'); a.snd.set(app.SOUNDS[0])
     a.folder_choice.set(app.FOLDER_AUTO); a.out_dir.set(TMP); a.skip_done.set(True)
     added = a.open_project(P)

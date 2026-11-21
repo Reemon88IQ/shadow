@@ -255,7 +255,7 @@ def write_failure_log(scene, out_mp4, preset, opts, exc, tb_text, log_dir=None, 
         path = unique_path(os.path.join(d, f'{os.path.splitext(os.path.basename(scene))[0]}_{stamp}.log'))
         msg = str(exc).strip()
         ff = [l for l in msg.splitlines() if 'ffmpeg' in l.lower()]
-        lines = [f'Shadow v{rc.VERSION} - render failed {stamp}', '',
+        lines = [f'Seekframe v{rc.VERSION} - render failed {stamp}', '',
                  f'scene:   {scene}', f'output:  {out_mp4}', f'preset:  {json.dumps(preset)}',
                  f'options: {json.dumps(opts, ensure_ascii=False)}', '',
                  f'error:   {type(exc).__name__}: {msg.splitlines()[0] if msg else ""}', '',
@@ -461,7 +461,7 @@ def narration_problem(scene, wav, words, style='pop'):
         if style not in mod.STYLES: return f'style must be one of {", ".join(mod.STYLES)}, got {style!r}'
         with open(scene, encoding='utf-8') as fh: html = fh.read()
         if mod.is_narrated(html): return f'{os.path.basename(scene)} already has narration built in'
-        if 'SOUND' not in html or 'seek' not in html: return f'{os.path.basename(scene)} is not a Shadow scene with a SOUND kit'
+        if 'SOUND' not in html or 'seek' not in html: return f'{os.path.basename(scene)} is not a Seekframe scene with a SOUND kit'
         return None
     except Exception as e:
         log.exception('narration_problem'); return f'{type(e).__name__}: {e}'
@@ -533,7 +533,7 @@ class App(Root):
     def __init__(self):
         super().__init__()
         setup_log()
-        self.title(tr('Shadow v{0}', rc.VERSION))
+        self.title(tr('Seekframe v{0}', rc.VERSION))
         base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))   # exe: unpacked bundle; source: project folder
         ico = os.path.join(base, 'assets', 'shadow.ico')
         try:
@@ -622,14 +622,14 @@ class App(Root):
         rel = self.update_rel
         if not rel or self.update_busy: return
         if not (getattr(sys, 'frozen', False) or os.environ.get('SHADOW_UPDATE_URL')):
-            messagebox.showinfo(tr('Update'), tr('Shadow v{0} is available. This copy runs from source: update it with git pull.', rel['version'])); return
+            messagebox.showinfo(tr('Update'), tr('Seekframe v{0} is available. This copy runs from source: update it with git pull.', rel['version'])); return
         if self.worker and self.worker.is_alive():
             messagebox.showinfo(tr('Update'), tr('Wait until the render queue has finished, then press Update again.')); return
         # only the first paragraph (what changed); the rest of the release text is download help for the GitHub page
         first = re.split(r'\r?\n\s*\r?\n', rel['notes'].strip(), maxsplit=1)[0]
         notes = first[:1200] + ('...' if len(first) > 1200 else '')
-        if not messagebox.askyesno(tr('Update'), f'Shadow v{rel["version"]} is available (you have v{rc.VERSION}).\n\n'
-                                   + (notes + '\n\n' if notes else '') + 'Download and install it now? Shadow closes and opens again by itself.'):
+        if not messagebox.askyesno(tr('Update'), f'Seekframe v{rel["version"]} is available (you have v{rc.VERSION}).\n\n'
+                                   + (notes + '\n\n' if notes else '') + 'Download and install it now? Seekframe closes and opens again by itself.'):
             return
         self.update_busy = True; self.update_btn.config(state='disabled'); self.go.config(state='disabled')
         dest = os.path.join(os.environ.get('TEMP') or os.path.expanduser('~'), 'Shadow-update')
@@ -657,7 +657,7 @@ class App(Root):
     def build(self):
         P = 14
         top = ttk.Frame(self); top.pack(fill='x', padx=P, pady=(P, 6))
-        ttk.Label(top, text=tr('Shadow'), font='SunValleyTitleLargeFont').pack(side='left')
+        ttk.Label(top, text=tr('Seekframe'), font='SunValleyTitleLargeFont').pack(side='left')
         ttk.Label(top, text=tr('  v{0}   HTML scene → MP4', rc.VERSION), foreground='#888').pack(side='left', pady=(6, 0))
         self.theme_btn = ttk.Button(top, width=9, command=self.toggle_theme); self.theme_btn.pack(side='right')
         # 3.20 language: 'Auto' = Windows' language when Shadow has it; a change asks to restart
@@ -884,12 +884,12 @@ class App(Root):
     def save_project(self, path=None):
         """Save project (as): the queue and its options in a .shadow file. Returns the path, or None (cancelled / failed)."""
         if not path:
-            path = filedialog.asksaveasfilename(defaultextension=PROJECT_EXT, filetypes=[('Shadow project', '*' + PROJECT_EXT)],
+            path = filedialog.asksaveasfilename(defaultextension=PROJECT_EXT, filetypes=[('Seekframe project', '*' + PROJECT_EXT)],
                                                 initialdir=os.path.dirname(self.files[0]) if self.files else None, initialfile='project' + PROJECT_EXT)
             if not path: return None
         try: write_project(path, self.project_data())
         except OSError as e: messagebox.showerror(tr('Project'), tr('Could not save {0}:\n{1}', path, e)); return None
-        self.project_path = path; self.title(tr('Shadow - {0}', os.path.splitext(os.path.basename(path))[0]))
+        self.project_path = path; self.title(tr('Seekframe - {0}', os.path.splitext(os.path.basename(path))[0]))
         self.status.config(text=tr('Project saved: {0}', path)); log.info('project saved %s (%d scenes)', path, len(self.files))
         return path
     def open_project(self, path=None, ask=messagebox.askyesnocancel):
@@ -898,7 +898,7 @@ class App(Root):
         if self.worker is not None and self.worker.is_alive():
             messagebox.showinfo(tr('Project'), tr('A render is running. Open the project when the queue is done.')); return []
         if not path:
-            path = filedialog.askopenfilename(filetypes=[('Shadow project', '*' + PROJECT_EXT)])
+            path = filedialog.askopenfilename(filetypes=[('Seekframe project', '*' + PROJECT_EXT)])
             if not path: return []
         try: data = read_project(path)
         except (OSError, ValueError) as e: messagebox.showerror(tr('Project'), tr('Could not open {0}:\n{1}', path, e)); return []
@@ -931,7 +931,7 @@ class App(Root):
                 err = self.set_narration(f, n.get('wav', ''), n.get('words', ''), style=n.get('style', 'pop'), yh=n.get('yh', 0.88),
                                          gain=n.get('gain', 1.0), captions=n.get('captions', True))
                 if err: narr_err.append(f'{os.path.basename(f)}: {err}')
-        self.refresh_audio(); self.project_path = path; self.title(tr('Shadow - {0}', os.path.splitext(os.path.basename(path))[0]))
+        self.refresh_audio(); self.project_path = path; self.title(tr('Seekframe - {0}', os.path.splitext(os.path.basename(path))[0]))
         self.status.config(text=f'Project opened: {len(added)} scene(s)' + (f', {len(missing)} missing' if missing else ''))
         log.info('project opened %s: %d added, %d missing', path, len(added), len(missing))
         if missing or narr_err:
@@ -1158,7 +1158,7 @@ class App(Root):
                     if not jobs: return
         broken = {f: p for f, p in ((f, rc.contract_problems(f)) for f, _ in jobs if not bc.is_blend(f) and not vsong.is_video(f)) if p}
         if broken:   # explained before the render instead of an error (or a 3-minute wait) in the middle of the queue
-            a = ask('Scene check', 'These scenes miss something Shadow needs and will probably fail:\n\n' +
+            a = ask('Scene check', 'These scenes miss something Seekframe needs and will probably fail:\n\n' +
                     '\n\n'.join(f'{os.path.basename(f)}:\n' + '\n'.join(f'  • {x}' for x in p) for f, p in broken.items()) +
                     '\n\nRender them anyway?\nYes = render all   No = skip these   Cancel = stop')
             if a is None: return
@@ -1344,7 +1344,7 @@ class App(Root):
                     self._cur_left = None; self.update_eta(); eta_dirty = False
                     if self.notify.get() and not cancelled and (done or failed):   # Windows notification; a click opens the folder
                         folders = {os.path.dirname(p) for p in done}
-                        self.last_notify = (f'Shadow: queue finished' if not failed else 'Shadow: queue finished with errors', txt,
+                        self.last_notify = (f'Seekframe: queue finished' if not failed else 'Seekframe: queue finished with errors', txt,
                                             folders.pop() if len(folders) == 1 else self.out_dir.get())
                         notify(*self.last_notify)
                     self.status.config(text=txt); self.bar['value'] = 100 if done and not failed and not cancelled else self.bar['value']
@@ -1456,7 +1456,7 @@ class App(Root):
     def ai_context(self):
         """The [Shadow app] block put in front of each message: the queue, Save to, settings, whether the GUI is rendering."""
         busy = self.worker is not None and self.worker.is_alive()
-        lines = [f'[Shadow app] Save to: {self.out_dir.get()} | Quality: {self.preset.get()} | Format: {self.fmt.get()} | '
+        lines = [f'[Seekframe app] Save to: {self.out_dir.get()} | Quality: {self.preset.get()} | Format: {self.fmt.get()} | '
                  f'Sound: {self.snd.get()} | Capture: {self.capture.get()} | GUI queue rendering now: {"yes" if busy else "no"}']
         rows = self.files[:30]
         lines.append(f'Queue ({len(self.files)} scene(s))' + (':' if rows else ': empty'))
@@ -1561,9 +1561,9 @@ class App(Root):
         self.lang_choice = code; self.save()
         new = i18n.pick(code)
         if new == self.lang: return True
-        if (ask or messagebox.askyesno)(tr('Language'), tr('Shadow will use {0} after a restart. Restart now?', i18n.name(new))):
+        if (ask or messagebox.askyesno)(tr('Language'), tr('Seekframe will use {0} after a restart. Restart now?', i18n.name(new))):
             if self.worker and self.worker.is_alive():
-                messagebox.showinfo(tr('Language'), tr('A render is running: the new language is used the next time Shadow starts.')); return True
+                messagebox.showinfo(tr('Language'), tr('A render is running: the new language is used the next time Seekframe starts.')); return True
             (restart or self.restart)()
         return True
     def restart(self, popen=subprocess.Popen):
@@ -1652,7 +1652,7 @@ def cli_check(argv):
     """Shadow.exe --check scene.html|scene.blend [--only 16:9|9:16] [--times 3,25%,end-2] [--out sheet.jpg]
     tools/check_frames.py inside the exe: prints the sheet path and OK / PROBLEMS; exit 0 = OK, 1 = problems."""
     import argparse
-    ap = argparse.ArgumentParser(prog='Shadow'); ap.add_argument('--check', required=True, metavar='SCENE')
+    ap = argparse.ArgumentParser(prog='Seekframe'); ap.add_argument('--check', required=True, metavar='SCENE')
     ap.add_argument('--only', choices=['16:9', '9:16']); ap.add_argument('--times'); ap.add_argument('--out')
     ap.add_argument('--engine', default='scene', choices=list(bc.ENGINES)); a = ap.parse_args(argv)
     res = frame_check.check(a.check, times=a.times, out=a.out, only=a.only, engine=a.engine)
@@ -1663,14 +1663,14 @@ def cli_check(argv):
     except Exception: pass
     return 0 if res['ok'] else 1
 
-SELFTEST_SCENE = """<!doctype html><meta charset=utf-8><title>Shadow self-test</title><body style="margin:0;background:#000">
+SELFTEST_SCENE = """<!doctype html><meta charset=utf-8><title>Seekframe self-test</title><body style="margin:0;background:#000">
 <canvas id=c></canvas><script>
 const q = new URLSearchParams(location.search), get = k => q.get(k), W = +get('w') || 1280, H = +get('h') || Math.round(W * 9 / 16);
 const c = document.getElementById('c'); c.width = W; c.height = H; const g = c.getContext('2d');
 window.DURATION = 2;
 window.seek = (t) => { g.fillStyle = '#0b1d33'; g.fillRect(0, 0, W, H); const x = W * (0.1 + 0.8 * t / 2);
   g.fillStyle = '#f5a623'; g.beginPath(); g.arc(x, H / 2, H / 6, 0, 7); g.fill();
-  g.fillStyle = '#fff'; g.font = `${Math.round(H / 14)}px sans-serif`; g.textAlign = 'center'; g.fillText('Shadow self-test  t=' + t.toFixed(2), W / 2, H * 0.88); };
+  g.fillStyle = '#fff'; g.font = `${Math.round(H / 14)}px sans-serif`; g.textAlign = 'center'; g.fillText('Seekframe self-test  t=' + t.toFixed(2), W / 2, H * 0.88); };
 window.seek(0); window.__ready = true;
 </script>"""
 
@@ -1725,8 +1725,8 @@ def selftest_text(res):
 def clean_old_updates(dest=None):
     """Delete update setups in %TEMP%\\Shadow-update that are this version or older (installed already). -> bytes freed."""
     dest = dest or os.path.join(os.environ.get('TEMP') or os.path.expanduser('~'), 'Shadow-update'); freed = 0
-    for p in glob.glob(os.path.join(dest, 'Shadow-*-Setup.exe')):
-        m = re.match(r'Shadow-([\d.]+)-Setup\.exe$', os.path.basename(p), re.I)
+    for p in glob.glob(os.path.join(dest, '*-Setup.exe')):   # Seekframe-X.Y-Setup.exe, and Shadow-X.Y-Setup.exe from before 3.25
+        m = re.match(r'(?:Seekframe|Shadow)-([\d.]+)-Setup\.exe$', os.path.basename(p), re.I)
         try:
             if m and updater.parse_version(m.group(1)) <= updater.parse_version(rc.VERSION):
                 n = os.path.getsize(p); os.remove(p); freed += n
@@ -1752,7 +1752,7 @@ def cli(argv):
     Renders without the window (for scripts and for testing the built exe). Progress and errors go to shadow.log.
     Exit code 0 = done and the output size checked, 1 = failed."""
     import argparse
-    ap = argparse.ArgumentParser(prog='Shadow'); ap.add_argument('--render', nargs=2, metavar=('SCENE', 'OUT'), required=True)
+    ap = argparse.ArgumentParser(prog='Seekframe'); ap.add_argument('--render', nargs=2, metavar=('SCENE', 'OUT'), required=True)
     ap.add_argument('--vertical', action='store_true'); ap.add_argument('--silent', action='store_true')
     ap.add_argument('--preset', default='best', choices=['draft', 'good', 'best', '1440p', '4k'])
     ap.add_argument('--fast', action='store_true', help='Fast capture (JPEG frames, about 2x faster)')

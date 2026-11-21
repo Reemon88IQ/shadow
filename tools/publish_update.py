@@ -66,15 +66,16 @@ def main():
     ap.add_argument('--notes', help='the one-line release notes; skips that question')
     a = ap.parse_args()
     cur = current_version()
-    print(f'Shadow publish update   (now v{cur}, GitHub: {updater.REPO})\n')
+    print(f'Seekframe publish update   (now v{cur}, GitHub: {updater.REPO})\n')
 
     # checks before asking anything
     if out('git', 'branch', '--show-current').strip() != 'master': stop('switch to the master branch first')
     if not shutil.which('gh'): stop('GitHub CLI missing: winget install -e --id GitHub.cli, then gh auth login --web')
     if subprocess.run(['gh', 'auth', 'status'], capture_output=True).returncode != 0: stop('not signed in to GitHub: gh auth login --web -h github.com -p https')
-    if 'shadow.exe' in subprocess.run(['tasklist', '/fi', 'imagename eq Shadow.exe'], capture_output=True, text=True).stdout.lower():
-        if not a.dry_run: stop('close Shadow first (the tests and the build need it closed)')
-        print('note: Shadow is open (fine for --dry-run; close it for the real run)')
+    if any(n.lower() in subprocess.run(['tasklist', '/fi', f'imagename eq {n}'], capture_output=True, text=True).stdout.lower()
+           for n in ('Seekframe.exe', 'Shadow.exe')):
+        if not a.dry_run: stop('close Seekframe first (the tests and the build need it closed)')
+        print('note: Seekframe is open (fine for --dry-run; close it for the real run)')
     if not os.path.isdir(os.path.join(os.path.dirname(ROOT), 'shadow-public', '.git')): stop('C:\\Projects\\shadow-public (the public repo) is missing')
 
     sug = '.'.join(cur.split('.')[:-1] + [str(int(cur.split('.')[-1]) + 1)])
@@ -94,7 +95,7 @@ def main():
     else:
         err = valid_new(new, cur)
         if err: stop(err)
-    notes = a.notes or ask('What changed? (one line, shown in the update window): ') or f'Shadow {new}'
+    notes = a.notes or ask('What changed? (one line, shown in the update window): ') or f'Seekframe {new}'
     files = changed_files()
     since = out('git', 'rev-list', '--count', f'v{cur}..HEAD').strip()   # commits since the last release (tag v<cur>)
     if not resume and not files and since == '0':
@@ -107,7 +108,7 @@ def main():
         print(f'  1. VERSION {cur} -> {new} in render_core.py')
         print(f'  2. tests: {"SKIPPED" if a.skip_tests else ", ".join(TESTS)}  (about 10-15 min)')
         print(f'  3. commit on master: render_core.py' + (', ' + ', '.join(files) if files else '') + ' (scenes/ is never committed)')
-    print( '  4. build_exe.bat -> dist\\Shadow.exe     5. build_installer.bat -> dist\\Shadow-%s-Setup.exe' % new)
+    print( '  4. build_exe.bat -> dist\\Seekframe.exe     5. build_installer.bat -> dist\\Seekframe-%s-Setup.exe' % new)
     print( '  6. public code -> github.com/%s       7. release v%s with the setup + notes: %s' % (updater.REPO, new, notes))
     if a.dry_run:
         print('\n--dry-run: nothing was changed.'); return
@@ -131,25 +132,25 @@ def commit_new_version(a, rc_path, new, cur, notes, files):
         if not run([sys.executable, '-c', "import ast; ast.parse(open('app.py', encoding='utf-8').read()); print('ast ok')"]):
             open(rc_path, 'w', encoding='utf-8', newline='').write(old_text); stop('app.py does not parse')
     print('[3/7] commit')
-    if not (run(['git', 'add', '--', 'render_core.py', *files]) and run(['git', 'commit', '-q', '-m', f'Shadow {new}: {notes}'])):
+    if not (run(['git', 'add', '--', 'render_core.py', *files]) and run(['git', 'commit', '-q', '-m', f'Seekframe {new}: {notes}'])):
         stop('git commit failed')
 
 
 def build_and_publish(new, notes, t0):
-    print('[4/7] build Shadow.exe')
-    if not run(r'.\build_exe.bat < nul', shell=True) or not os.path.exists(os.path.join(ROOT, 'dist', 'Shadow.exe')): stop('build_exe.bat failed')
+    print('[4/7] build Seekframe.exe')
+    if not run(r'.\build_exe.bat < nul', shell=True) or not os.path.exists(os.path.join(ROOT, 'dist', 'Seekframe.exe')): stop('build_exe.bat failed')
     print('[5/7] build the setup')
-    setup = os.path.join(ROOT, 'dist', f'Shadow-{new}-Setup.exe')
+    setup = os.path.join(ROOT, 'dist', f'Seekframe-{new}-Setup.exe')
     if not run(r'.\build_installer.bat < nul', shell=True) or not os.path.exists(setup): stop('build_installer.bat failed')
     print('[6/7] public code')
-    if not run([sys.executable, os.path.join('tools', 'publish_public.py'), '-m', f'Shadow {new}: {notes}', '--push']): stop('publishing the code failed')
+    if not run([sys.executable, os.path.join('tools', 'publish_public.py'), '-m', f'Seekframe {new}: {notes}', '--push']): stop('publishing the code failed')
     print('[7/7] GitHub release')
     notes_file = os.path.join(ROOT, 'release_notes.txt')
     with open(notes_file, 'w', encoding='utf-8') as f:
         # first paragraph = what changed (the in-app update window shows only that); then install help and the changelog
         f.write(f'{notes}\n\n'
-                f'**Install:** download `Shadow-{new}-Setup.exe` below and run it (no admin needed; if Windows SmartScreen warns, '
-                f'choose *More info* -> *Run anyway*). **Already installed?** Open Shadow and press **Update to v{new}**.\n\n'
+                f'**Install:** download `Seekframe-{new}-Setup.exe` below and run it (no admin needed; if Windows SmartScreen warns, '
+                f'choose *More info* -> *Run anyway*). **Already installed?** Open Seekframe and press **Update to v{new}**.\n\n'
                 f'All changes: [CHANGELOG.md](https://github.com/Reemon88IQ/shadow/blob/main/CHANGELOG.md)\n')
     try: ok = run(r'.\release.bat < nul', shell=True)   # .\ : cmd may not search the current folder (NoDefaultCurrentDirectoryInExePath)
     finally:
@@ -163,7 +164,7 @@ def build_and_publish(new, notes, t0):
     except Exception: live = False
     mins = (time.time() - t0) / 60
     print(f'\nDONE in {mins:.0f} min: v{new} is ' + ('live' if live else 'published (GitHub may need a minute)') +
-          f'\n  https://github.com/{updater.REPO}/releases/latest\nEveryone with Shadow sees "Update to v{new}" the next time they open it.')
+          f'\n  https://github.com/{updater.REPO}/releases/latest\nEveryone with Seekframe sees "Update to v{new}" the next time they open it.')
 
 
 if __name__ == '__main__':

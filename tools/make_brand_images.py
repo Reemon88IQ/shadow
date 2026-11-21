@@ -28,7 +28,7 @@ def main():
     logo = Image.open(os.path.join(ROOT, 'assets', 'shadow_1024.png')).convert('RGBA')
     # banner 1600x500
     W, H = 1600, 500; im = canvas(W, H); L = logo.resize((360, 360), Image.LANCZOS); im.paste(L, (90, 70), L); d = ImageDraw.Draw(im)
-    d.text((510, 150), 'Shadow', font=F('b', 120), fill=TXT, anchor='lm')
+    d.text((510, 150), 'Seekframe', font=F('b', 120), fill=TXT, anchor='lm')
     d.text((514, 250), 'HTML & Blender scenes  \u2192  MP4 for YouTube and Shorts', font=F('s', 40), fill=ORANGE, anchor='lm')
     x = 514
     for t in ('4K \u00b7 30 fps \u00b7 sound', '16:9 + 9:16', 'AI: idea \u2192 video', '11 languages', 'free'):
@@ -36,13 +36,13 @@ def main():
     im.save(os.path.join(ROOT, 'docs', 'banner.png'), optimize=True)
     # social preview 1280x640
     W, H = 1280, 640; im = canvas(W, H); L = logo.resize((300, 300), Image.LANCZOS); im.paste(L, (80, 110), L); d = ImageDraw.Draw(im)
-    d.text((430, 200), 'Shadow', font=F('b', 120), fill=TXT, anchor='lm')
+    d.text((430, 200), 'Seekframe', font=F('b', 120), fill=TXT, anchor='lm')
     d.text((434, 300), 'HTML & Blender scenes \u2192 MP4', font=F('s', 44), fill=ORANGE, anchor='lm')
     d.text((434, 360), 'for YouTube videos and Shorts', font=F('r', 34), fill=SUB, anchor='lm')
     x = 434
     for t in ('4K · 30 fps', '16:9 + 9:16', 'AI', '11 languages', 'QC'):
         x = chip(d, x, 420, t, F('r', 24))
-    d.text((80, 580), 'Free Windows app  \u00b7  github.com/Reemon88IQ/shadow', font=F('r', 26), fill=(150, 144, 170), anchor='lm')
+    d.text((80, 580), 'Free Windows app  \u00b7  github.com/Reemon88IQ/seekframe', font=F('r', 26), fill=(150, 144, 170), anchor='lm')
     im.save(os.path.join(ROOT, 'docs', 'social_preview.png'), optimize=True)
     print('wrote docs/banner.png and docs/social_preview.png')
 

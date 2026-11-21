@@ -1,7 +1,16 @@
 # Changelog
 
-Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
-themselves: Shadow shows **Update to vX.Y** when a new release is out.
+Every release is on the [Releases](../../releases) page with its `Seekframe-<version>-Setup.exe`. Installed copies update
+themselves: Seekframe shows **Update to vX.Y** when a new release is out.
+
+## 3.25
+- **Shadow is now called Seekframe.** The name Shadow was already used by other Windows apps (Shadow PC, and a "Shadow
+  Studio" in the Microsoft Store), so the app got a name of its own, after how it works: `seek(t)` draws exactly the frame
+  at time t. The program is now `Seekframe.exe`, the setup `Seekframe-X.Y-Setup.exe`, and the GitHub page
+  github.com/Reemon88IQ/seekframe (the old address still leads there).
+- Nothing else changes: your settings, projects (`.shadow` files), scenes, output folders, the YouTube sign-in and the
+  Claude connection (MCP server `shadow`) all work as before. Updating from Shadow installs Seekframe in the same folder
+  and replaces the old shortcuts.
 
 ## 3.24
 - New README pictures (New video (AI), the AI window, Shadow in Arabic) and an updated banner; the privacy policy now

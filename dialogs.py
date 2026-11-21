@@ -276,7 +276,7 @@ class AIWindow:
         t = self.top = tk.Toplevel(app); t.title(tr('AI - {0}', os.path.basename(path))); t.transient(app); t.minsize(680, 520)
         f = ttk.Frame(t, padding=14); f.pack(fill='both', expand=True); f.columnconfigure(0, weight=1)
         ttk.Label(f, text=os.path.basename(path), font=('Segoe UI', 11, 'bold')).grid(row=0, column=0, sticky='w')
-        ttk.Label(f, text=tr('What is wrong (Shadow fills in what it found; add your own words, in any language):'),
+        ttk.Label(f, text=tr('What is wrong (Seekframe fills in what it found; add your own words, in any language):'),
                   foreground='#888').grid(row=1, column=0, sticky='w', pady=(8, 2))
         self.note = tk.Text(f, height=5, wrap='word', relief='solid', borderwidth=1, padx=8, pady=6, font='SunValleyBodyFont'); self.note.grid(row=2, column=0, sticky='nsew')
         if problems: self.note.insert('1.0', '\n'.join(f'- {p}' for p in problems))
@@ -347,7 +347,7 @@ class AIWindow:
             d = self.ai.diff_lines(self.path, r['work'], 200)
             self.write('\nChanges (- before, + after):\n' + ('\n'.join(d) if d else '(no change)') + '\n')
         if r['ok']:
-            self.status.config(text=tr('Fixed in {0} round(s); Shadow checked the copy: OK. Press Apply to use it.', r['rounds']), foreground='#3fb950')
+            self.status.config(text=tr('Fixed in {0} round(s); Seekframe checked the copy: OK. Press Apply to use it.', r['rounds']), foreground='#3fb950')
         else:
             left = r.get('problems') or []
             self.status.config(text=tr('Not fixed: {0}', r.get('error') or '; '.join(left[:3])), foreground='#f85149')
@@ -442,7 +442,7 @@ class NewVideoDialog:
         self.style = tk.StringVar(value=app.cfg_ai.get('style') if app.cfg_ai.get('style') in ai_tasks.STYLES else next(iter(ai_tasks.STYLES)))
         self.length = tk.StringVar(value=app.cfg_ai.get('length') if app.cfg_ai.get('length') in ai_tasks.LENGTHS else '1 minute')
         self.voice = tk.BooleanVar(value=app.cfg_ai.get('voice', True))
-        self.root = tk.StringVar(value=app.cfg_ai.get('dir') or os.path.join(os.path.expanduser('~'), 'Videos', 'Shadow scenes'))
+        self.root = tk.StringVar(value=app.cfg_ai.get('dir') or os.path.join(os.path.expanduser('~'), 'Videos', 'Seekframe scenes'))
         for r, (lbl, var, vals) in enumerate((('Style', self.style, list(ai_tasks.STYLES)), ('Length', self.length, list(ai_tasks.LENGTHS))), start=2):
             ttk.Label(f, text=tr(lbl)).grid(row=r, column=0, sticky='w', pady=3)
             i18n.Combo(f, var, vals, width=34).grid(row=r, column=1, sticky='w', padx=8)
@@ -456,7 +456,7 @@ class NewVideoDialog:
         bt = ttk.Frame(f); bt.grid(row=6, column=0, columnspan=3, sticky='w', pady=8)
         self.go_btn = ttk.Button(bt, text=tr('Make the video'), style='Accent.TButton', command=self.start); self.go_btn.pack(side='left')
         self.stop_btn = ttk.Button(bt, text=tr('Stop'), command=self.stop, state='disabled'); self.stop_btn.pack(side='left', padx=(6, 0))
-        ttk.Label(bt, text=tr('  Claude writes the script and the scene; Shadow makes the voice and checks every frame.'), foreground='#888').pack(side='left')
+        ttk.Label(bt, text=tr('  Claude writes the script and the scene; Seekframe makes the voice and checks every frame.'), foreground='#888').pack(side='left')
         self.status = ttk.Label(f, text=''); self.status.grid(row=7, column=0, columnspan=3, sticky='w')
         self.out = tk.Text(f, height=12, wrap='word', state='disabled', relief='solid', borderwidth=1, padx=8, pady=6, font='SunValleyBodyFont'); self.out.grid(row=8, column=0, columnspan=3, sticky='nsew', pady=(4, 0))
         f.rowconfigure(8, weight=1)

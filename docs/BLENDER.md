@@ -1,6 +1,6 @@
-# Blender scenes in Shadow
+# Blender scenes in Seekframe
 
-Shadow renders `.blend` files the same way as HTML scenes: drop them in the queue (or `shadow_render` / the CLI), and you
+Seekframe renders `.blend` files the same way as HTML scenes: drop them in the queue (or `shadow_render` / the CLI), and you
 get `<Save to>\<scene>\<scene>.mp4` (`_shorts.mp4` for 9:16), 30 fps, x264 crf 16, AAC 192k with the audio inside the QC
 limits, a `.qc.txt`, an optional thumbnail, and a failure log on error. Mixed queues (HTML + .blend) are fine.
 
@@ -13,7 +13,7 @@ Tested with Blender 5.3 + RTX 5070 Ti (OptiX). "Install missing" offers `winget 
 .blend is in the queue and Blender is not found. A queue with only .blend scenes does not need Chrome.
 
 ## Settings
-| Shadow | For a .blend |
+| Seekframe | For a .blend |
 |--------|-------------|
 | Quality Draft / Good / Best | 1280 / 1920 / 1920 px wide. Samples: Eevee 16 / 64 / max(scene, 128); Cycles 32 / 128 / max(scene, 512) + denoise (OptiX on NVIDIA, else OpenImageDenoise); Workbench AA 8 / 16 / 32. Best never lowers what you set in the scene |
 | Blender (new option) | Scene setting (default) / Eevee / Cycles (GPU) / Workbench (fast) |

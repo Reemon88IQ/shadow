@@ -1,5 +1,5 @@
 """Shadow rendering engine: HTML scene -> frames -> audio -> MP4. No GUI code here."""
-VERSION = "3.24"
+VERSION = "3.25"
 import base64, collections, functools, urllib.parse, http.server, os, shutil, subprocess, sys, tempfile, threading, time, wave, array
 
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -123,10 +123,10 @@ def _ff(cmd):
 
 # What a scene must provide (CLAUDE.md "Scene contract"), with the reason, for messages a person can act on.
 CONTRACT = {
-    'ready': 'window.__ready is never set: set window.__ready = true when the scene has loaded (Shadow waits for it)',
-    'seek': 'window.seek(t) is missing: Shadow calls it for every frame to draw the moment t (seconds)',
+    'ready': 'window.__ready is never set: set window.__ready = true when the scene has loaded (Seekframe waits for it)',
+    'seek': 'window.seek(t) is missing: Seekframe calls it for every frame to draw the moment t (seconds)',
     'duration': 'window.DURATION is missing: set it to the length of the scene in seconds',
-    'canvas': 'no <canvas id="c">: Shadow takes every frame from the canvas with id "c"',
+    'canvas': 'no <canvas id="c">: Seekframe takes every frame from the canvas with id "c"',
 }
 
 def _scene_sources(html_path, limit=40):

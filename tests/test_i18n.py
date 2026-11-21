@@ -27,7 +27,7 @@ ids = set()
 for fn in ('app.py', 'dialogs.py'):
     for n in ast.walk(ast.parse(open(os.path.join(ROOT, fn), encoding='utf-8').read())):
         if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == 'tr' and n.args and isinstance(n.args[0], ast.Constant): ids.add(n.args[0].value)
-BRAND = {'Shadow', 'Shadow v{0}', 'Shadow - {0}', 'YouTube'}
+BRAND = {'Seekframe', 'Seekframe v{0}', 'Seekframe - {0}', 'YouTube'}
 slots = lambda s: sorted(re.findall(r'\{\d*\}', s))
 for code, d in sorted(LOC.items()):
     miss = sorted(i for i in ids - BRAND if i not in d)

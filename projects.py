@@ -26,7 +26,7 @@ def read_project(path):
     """A .shadow file -> dict(files (absolute, in order), narration {file: settings}, options). Raises ValueError when it is
     not a Shadow project."""
     with open(path, encoding='utf-8-sig') as f: d = json.load(f)
-    if not isinstance(d, dict) or 'shadow_project' not in d or not isinstance(d.get('files'), list): raise ValueError('not a Shadow project file')
+    if not isinstance(d, dict) or 'shadow_project' not in d or not isinstance(d.get('files'), list): raise ValueError('not a Seekframe project file')
     base = os.path.dirname(os.path.abspath(path))
     ab = lambda p: os.path.normpath(os.path.join(base, p)) if isinstance(p, str) and p else p
     narr = {ab(f): {k: (ab(v) if k in ('wav', 'words') else v) for k, v in (n or {}).items()} for f, n in (d.get('narration') or {}).items()}

@@ -1,6 +1,7 @@
-﻿; Shadow installer (Inno Setup 6, free: https://jrsoftware.org).
-; Build with build_installer.bat (it reads VERSION from render_core.py and needs dist\Shadow.exe from build_exe.bat).
-; Installs per user (no admin) to %LOCALAPPDATA%\Shadow - the same place install.bat uses, so it upgrades either.
+﻿; Seekframe installer (formerly Shadow; Inno Setup 6, free: https://jrsoftware.org).
+; Build with build_installer.bat (it reads VERSION from render_core.py and needs dist\Seekframe.exe from build_exe.bat).
+; Installs per user (no admin) to %LOCALAPPDATA%\Seekframe; an existing Shadow install keeps its folder (same AppId,
+; UsePreviousAppDir) and gets Seekframe.exe in place of Shadow.exe.
 ; Settings (%USERPROFILE%\.shadow_renderer.json) and logs are never touched, also not by the uninstaller.
 
 #ifndef AppVer
@@ -9,20 +10,20 @@
 
 [Setup]
 AppId={{8C4C2F4E-6B1E-4C1A-9E57-5A4D2B7C9E21}
-AppName=Shadow
+AppName=Seekframe
 AppVersion={#AppVer}
-AppVerName=Shadow {#AppVer}
+AppVerName=Seekframe {#AppVer}
 AppPublisher=Reemon
 VersionInfoVersion={#AppVer}
-DefaultDirName={localappdata}\Shadow
+DefaultDirName={localappdata}\Seekframe
 DisableProgramGroupPage=yes
 UsePreviousAppDir=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=Shadow-{#AppVer}-Setup
+OutputBaseFilename=Seekframe-{#AppVer}-Setup
 SetupIconFile=..\assets\shadow.ico
-UninstallDisplayIcon={app}\Shadow.exe
-UninstallDisplayName=Shadow {#AppVer}
+UninstallDisplayIcon={app}\Seekframe.exe
+UninstallDisplayName=Seekframe {#AppVer}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -41,20 +42,20 @@ Name: "ar"; MessagesFile: "compiler:Languages\Arabic.isl"
 [CustomMessages]
 en.StartMenuIcon=Create a Start menu shortcut
 ar.StartMenuIcon=إنشاء اختصار في قائمة ابدأ
-en.Needed=Shadow needs these (installed with winget, internet required):
-ar.Needed=Shadow يحتاج هذه البرامج (تُنصَّب عبر winget، يحتاج إنترنت):
-en.NeedChrome=Install Google Chrome (Shadow renders with it)
-ar.NeedChrome=تنصيب Google Chrome (Shadow يرندر بيه)
+en.Needed=Seekframe needs these (installed with winget, internet required):
+ar.Needed=Seekframe يحتاج هذه البرامج (تُنصَّب عبر winget، يحتاج إنترنت):
+en.NeedChrome=Install Google Chrome (Seekframe renders with it)
+ar.NeedChrome=تنصيب Google Chrome (Seekframe يرندر بيه)
 en.NeedFFmpeg=Install ffmpeg (encoding and the quality check)
 ar.NeedFFmpeg=تنصيب ffmpeg (للترميز وفحص الجودة)
 en.InstallingChrome=Installing Google Chrome (a console window opens)...
 ar.InstallingChrome=جاري تنصيب Google Chrome (تنفتح نافذة أوامر)...
 en.InstallingFFmpeg=Installing ffmpeg (a console window opens)...
 ar.InstallingFFmpeg=جاري تنصيب ffmpeg (تنفتح نافذة أوامر)...
-en.NoWinget=winget was not found on this PC, so these could not be installed automatically:%n%n%1%nInstall them yourself, then open Shadow and check the top bar (or press "Install missing").
-ar.NoWinget=ما لگينا winget بهذه الحاسبة، فما گدرنا ننصّب هذه تلقائياً:%n%n%1%nنصّبها بنفسك، وبعدين افتح Shadow وشوف الشريط الفوگاني (أو اضغط "Install missing").
-en.FFmpegFresh=ffmpeg was just installed. If Shadow shows "ffmpeg (missing)", sign out and back in (or restart Windows) once.
-ar.FFmpegFresh=ffmpeg انتصب هسه. إذا Shadow طلّع "ffmpeg (missing)"، سوّي تسجيل خروج ودخول (أو ريستارت) مرة وحدة.
+en.NoWinget=winget was not found on this PC, so these could not be installed automatically:%n%n%1%nInstall them yourself, then open Seekframe and check the top bar (or press "Install missing").
+ar.NoWinget=ما لگينا winget بهذه الحاسبة، فما گدرنا ننصّب هذه تلقائياً:%n%n%1%nنصّبها بنفسك، وبعدين افتح Seekframe وشوف الشريط الفوگاني (أو اضغط "Install missing").
+en.FFmpegFresh=ffmpeg was just installed. If Seekframe shows "ffmpeg (missing)", sign out and back in (or restart Windows) once.
+ar.FFmpegFresh=ffmpeg انتصب هسه. إذا Seekframe طلّع "ffmpeg (missing)"، سوّي تسجيل خروج ودخول (أو ريستارت) مرة وحدة.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -63,22 +64,28 @@ Name: "chrome"; Description: "{cm:NeedChrome}"; GroupDescription: "{cm:Needed}";
 Name: "ffmpeg"; Description: "{cm:NeedFFmpeg}"; GroupDescription: "{cm:Needed}"; Check: NeedFFmpeg
 
 [Files]
-Source: "..\dist\Shadow.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\Seekframe.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\shadow.ico"; DestDir: "{app}"; Flags: ignoreversion
 
+[InstallDelete]
+; 3.25: the app was called Shadow - remove the old exe and its shortcuts when updating
+Type: files; Name: "{app}\Shadow.exe"
+Type: files; Name: "{autoprograms}\Shadow.lnk"
+Type: files; Name: "{autodesktop}\Shadow.lnk"
+
 [Icons]
-Name: "{autoprograms}\Shadow"; Filename: "{app}\Shadow.exe"; WorkingDir: "{app}"; IconFilename: "{app}\shadow.ico"; Tasks: startmenuicon
-Name: "{autodesktop}\Shadow"; Filename: "{app}\Shadow.exe"; WorkingDir: "{app}"; IconFilename: "{app}\shadow.ico"; Tasks: desktopicon
+Name: "{autoprograms}\Seekframe"; Filename: "{app}\Seekframe.exe"; WorkingDir: "{app}"; IconFilename: "{app}\shadow.ico"; Tasks: startmenuicon
+Name: "{autodesktop}\Seekframe"; Filename: "{app}\Seekframe.exe"; WorkingDir: "{app}"; IconFilename: "{app}\shadow.ico"; Tasks: desktopicon
 
 [Run]
 ; visible console: winget shows its own prompts (the user accepts Chrome's / ffmpeg's terms there)
 Filename: "{cmd}"; Parameters: "/c winget install -e --id Google.Chrome || pause"; StatusMsg: "{cm:InstallingChrome}"; Tasks: chrome; Check: HasWinget; Flags: waituntilterminated
 Filename: "{cmd}"; Parameters: "/c winget install -e --id Gyan.FFmpeg || pause"; StatusMsg: "{cm:InstallingFFmpeg}"; Tasks: ffmpeg; Check: HasWinget; Flags: waituntilterminated
-Filename: "{app}\Shadow.exe"; Description: "{cm:LaunchProgram,Shadow}"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\Seekframe.exe"; Description: "{cm:LaunchProgram,Seekframe}"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent
 ; the in-app updater runs the setup with /SILENT /relaunch=1: start Shadow again when done.
 ; PYINSTALLER_RESET_ENVIRONMENT=1: the old Shadow (onefile) handed its _PYI_* variables down to this setup; without the reset
 ; the new Shadow.exe would look for python3xx.dll in the old copy's deleted _MEI folder ("Failed to load Python DLL", v3.0 -> 3.1)
-Filename: "{cmd}"; Parameters: "/c set PYINSTALLER_RESET_ENVIRONMENT=1&& start """" ""{app}\Shadow.exe"""; WorkingDir: "{app}"; Flags: nowait runhidden; Check: WantRelaunch
+Filename: "{cmd}"; Parameters: "/c set PYINSTALLER_RESET_ENVIRONMENT=1&& start """" ""{app}\Seekframe.exe"""; WorkingDir: "{app}"; Flags: nowait runhidden; Check: WantRelaunch
 
 [Code]
 function OnPath(Name: String): Boolean;
@@ -117,7 +124,7 @@ function ShadowRunningHere: Boolean;
 var rc: Integer;
 begin
   // a Shadow.exe started from THIS install folder (another copy elsewhere does not block the update)
-  Exec('powershell.exe', '-NoProfile -NonInteractive -Command "if (Get-Process Shadow -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ''' +
+  Exec('powershell.exe', '-NoProfile -NonInteractive -Command "if (Get-Process Seekframe,Shadow -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ''' +
        ExpandConstant('{app}') + '\*'' }) { exit 0 } else { exit 1 }"', '', SW_HIDE, ewWaitUntilTerminated, rc);
   Result := rc = 0;
 end;

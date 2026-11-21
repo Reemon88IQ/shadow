@@ -439,8 +439,8 @@ def list_outputs(path):
 def build_server():
     from mcp.server.mcpserver import MCPServer, Image
     mcp = MCPServer('shadow', version=rc.VERSION, instructions=(
-        'Shadow renders self-contained three.js HTML scenes and Blender .blend scenes to MP4 (1080p 30 fps with sound) for the owner\'s YouTube channels, '
-        'with the same code as the Shadow app. Typical flow: shadow_check_frames(scene) -> look at the sheet -> shadow_plan -> '
+        'Seekframe renders self-contained three.js HTML scenes and Blender .blend scenes to MP4 (1080p 30 fps with sound) for the owner\'s YouTube channels, '
+        'with the same code as the Seekframe app. Typical flow: shadow_check_frames(scene) -> look at the sheet -> shadow_plan -> '
         'shadow_render -> shadow_progress(wait_seconds=50) until finished -> shadow_qc / shadow_outputs. '
         'Output: <out_dir>/<scene name>/<scene>.mp4 (9:16: <scene>_shorts.mp4) + .qc.txt; files are never overwritten. '
         'YouTube: shadow_upload_preview(video) -> show it to the owner -> only after his yes shadow_upload(same arguments) -> '
@@ -506,7 +506,7 @@ def build_server():
         need = {'ffmpeg'} | ({'chrome', 'playwright'} if 'html' in kinds else set())   # a .blend-only job needs no Chrome
         miss = [k for k, v in env.items() if not v and k in need]
         if 'blender' in kinds and not bc.find_blender(): miss.append('Blender (winget install -e --id BlenderFoundation.Blender)')
-        if miss: return dict(error='Missing: ' + ', '.join(miss) + '. Install them (Shadow\'s "Install missing" button does it).')
+        if miss: return dict(error='Missing: ' + ', '.join(miss) + '. Install them (Seekframe\'s "Install missing" button does it).')
         if not plan['rows']: return dict(error='no scenes to render', problems=plan['problems'])
         if all(r['skip'] for r in plan['rows']): return dict(error='every scene was skipped (' + ', '.join(sorted({r['status'] for r in plan['rows']})) + ')', plan=plan_view(plan))
         job = runner().submit(plan)
@@ -708,7 +708,7 @@ HTTP_PORT = 8765
 def parse_args(argv):
     """[] -> stdio (default). --http [--port N] -> local streamable HTTP at http://127.0.0.1:N/mcp (off unless asked)."""
     import argparse
-    ap = argparse.ArgumentParser(prog='mcp_server.py', description='Shadow MCP server (stdio by default).')
+    ap = argparse.ArgumentParser(prog='mcp_server.py', description='Seekframe MCP server (stdio by default).')
     ap.add_argument('--http', action='store_true', help=f'serve MCP over streamable HTTP on {HTTP_HOST} only (for clients that want a URL)')
     ap.add_argument('--port', type=int, default=HTTP_PORT, help=f'HTTP port (default {HTTP_PORT})')
     a = ap.parse_args(argv)
@@ -729,7 +729,7 @@ def main(argv=None):
     added = fill_windows_env()
     if os.environ.get('SHADOW_LOG'): app.LOG = os.environ['SHADOW_LOG']   # tests: keep the real ~/shadow.log untouched
     app.setup_log(); log.propagate = False   # ~/shadow.log only; MCPServer's console handler on stderr would repeat every line
-    log.info('mcp server start (Shadow v%s, pid %d)%s', rc.VERSION, os.getpid(), f' - added env {sorted(added)}' if added else '')
+    log.info('mcp server start (Seekframe v%s, pid %d)%s', rc.VERSION, os.getpid(), f' - added env {sorted(added)}' if added else '')
     threading.Thread(target=app.startup_cleanup, daemon=True).start()   # leftovers of crashed renders, installed update setups
     runner()
     if args.http:

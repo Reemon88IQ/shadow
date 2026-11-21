@@ -67,9 +67,10 @@ check('C2 removes gone-process / over-a-day folders, keeps live, recent-without-
 check('C2 pid_alive: this process yes, a finished one no', rc.pid_alive(os.getpid()) and not rc.pid_alive(dead.pid) and not rc.pid_alive(0))
 check('C2 a missing base folder -> (0, 0)', rc.clean_stale_temp(os.path.join(TMP, 'nope')) == (0, 0))
 up = os.path.join(TMP, 'Shadow-update'); os.makedirs(up)
-for v in ('3.12', rc.VERSION, '99.0'): open(os.path.join(up, f'Shadow-{v}-Setup.exe'), 'wb').write(b'x' * 100)
+for v in ('3.12', rc.VERSION, '99.0'): open(os.path.join(up, f'Seekframe-{v}-Setup.exe'), 'wb').write(b'x' * 100)
+open(os.path.join(up, 'Shadow-3.10-Setup.exe'), 'wb').write(b'x' * 100)   # a setup from before the 3.25 rename
 freed = app.clean_old_updates(up)
-check('C2 update setups: installed (older / this version) deleted, a newer one kept', os.listdir(up) == ['Shadow-99.0-Setup.exe'] and freed == 200, os.listdir(up))
+check('C2 update setups: installed (older / this version) deleted, a newer one kept', os.listdir(up) == ['Seekframe-99.0-Setup.exe'] and freed == 300, os.listdir(up))
 d = tempfile.mkdtemp(prefix='shadow_x_'); sub = os.path.join(d, 'r'); os.makedirs(sub); rc.mark_temp_owner(sub)
 check('C2 render temp folders carry their owner pid', open(os.path.join(sub, rc.OWNER_FILE)).read() == str(os.getpid())); shutil.rmtree(d)
 

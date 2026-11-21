@@ -26,12 +26,12 @@ FIX_STALE_S = 6 * 3600
 BACKUP_DIR = '.shadow_backup'
 READ = ['Read', 'Glob', 'Grep']
 
-SYSTEM = """You work inside the Shadow desktop app, called by one of its buttons (not a chat): do the job, then stop.
-Shadow renders self-contained three.js / canvas HTML scenes to MP4 (30 fps, with sound, 16:9 and 9:16 Shorts) for the
+SYSTEM = """You work inside the Seekframe desktop app, called by one of its buttons (not a chat): do the job, then stop.
+Seekframe renders self-contained three.js / canvas HTML scenes to MP4 (30 fps, with sound, 16:9 and 9:16 Shorts) for the
 owner's YouTube channels. You may read files; you may change ONLY the file the job names (anything else is refused).
 You cannot run commands or open web pages. End with a short plain-text summary (no tables, no code) in {lang}."""
 
-CONTRACT = """The Shadow scene contract (what every scene must do):
+CONTRACT = """The Seekframe scene contract (what every scene must do):
 - one <canvas id="c">; the size comes from the URL params w and h (read h too, e.g. get('h'), so 9:16 works; lay out for
   W/H < 1: camera, bigger wrapped captions kept above the Shorts UI);
 - with ?render=1 it must not autoplay; set window.__ready = true once everything is loaded;
@@ -133,13 +133,13 @@ def work_copy(scene):
 
 def fix_prompt(scene, work, problems, notes=()):
     p = '\n'.join(f'- {x}' for x in problems) or '- (none listed: check the scene against the contract and fix anything that breaks it)'
-    n = ('\nNotes from Shadow (not errors):\n' + '\n'.join(f'- {x}' for x in notes)) if notes else ''
-    return (f'Job: FIX this Shadow scene so it renders.\n\nThe scene is {os.path.basename(scene)}. Work ONLY on its copy '
+    n = ('\nNotes from Seekframe (not errors):\n' + '\n'.join(f'- {x}' for x in notes)) if notes else ''
+    return (f'Job: FIX this Seekframe scene so it renders.\n\nThe scene is {os.path.basename(scene)}. Work ONLY on its copy '
             f'"{os.path.basename(work)}" in this folder (same content; edit it with the Edit tool). Other files in this folder '
             f'(scripts, sounds, images it loads) may be read but not changed.\n\nShadow found these problems:\n{p}{n}\n\n'
             f'{CONTRACT}\n\nRules: keep the scene\'s look, story, text and timing; change only what is needed to fix the problems. '
             'If a problem is in a file you may not change, or cannot be fixed in this file, say so. '
-            'After your edits Shadow checks the copy again and tells you if something is still wrong.')
+            'After your edits Seekframe checks the copy again and tells you if something is still wrong.')
 
 def scene_problems(path, check=None, cancel=None):
     """What Shadow itself finds: the contract check + Check frames (contact sheet, page errors, seek purity)."""
@@ -166,14 +166,14 @@ def fix_scene(scene, problems, task=None, check=None, rounds=3, notes=(), progre
         if not res['ok']: out['error'] = res['error']; out['summary'] = res['text']; break
         out['summary'] = res['text']
         if task.stopped: out['error'] = 'stopped'; break
-        progress(f'Round {r}: Shadow checks the fixed copy...')
+        progress(f'Round {r}: Seekframe checks the fixed copy...')
         left, chk = scene_problems(work, check)
         out['problems'] = left; out['sheet'] = chk and chk.get('sheet')
         if not left:
             out['ok'] = open(work, 'rb').read() != before or not problems
             if not out['ok']: out['error'] = 'Claude did not change the scene'
             break
-        prompt = ('Shadow checked your fixed copy again. Still wrong:\n' + '\n'.join(f'- {x}' for x in left) +
+        prompt = ('Seekframe checked your fixed copy again. Still wrong:\n' + '\n'.join(f'- {x}' for x in left) +
                   f'\nFix these in "{os.path.basename(work)}" too, then give the short summary again.')
     return out
 
@@ -203,7 +203,7 @@ def discard(work):
 
 
 # ---------------------------------------------------------------- YouTube text (AI)
-META_FORMAT = """metadata.txt format (Shadow reads it when uploading; keep the field names exactly):
+META_FORMAT = """metadata.txt format (Seekframe reads it when uploading; keep the field names exactly):
 TITLE: one line, under 70 characters, curious and clear (no clickbait lies, no ALL CAPS)
 DESCRIPTION:
 several lines: a hook sentence, what the video shows, a short call to subscribe; for a song: the lyrics' theme
@@ -385,11 +385,11 @@ def check_loop(task, path, prompt, check, rounds, progress, what='scene'):
         res = task.ask(prompt); out['rounds'] = r; out['summary'] = res['text']
         if not res['ok']: out['error'] = res['error']; break
         if task.stopped: out['error'] = 'stopped'; break
-        progress(f'Round {r}: Shadow checks it (scene check + frames)...')
+        progress(f'Round {r}: Seekframe checks it (scene check + frames)...')
         left, chk = scene_problems(path, check)
         out['problems'] = left; out['sheet'] = chk and chk.get('sheet')
         if not left: out['ok'] = True; break
-        prompt = ('Shadow checked "' + os.path.basename(path) + '" and found:\n' + '\n'.join(f'- {x}' for x in left) +
+        prompt = ('Seekframe checked "' + os.path.basename(path) + '" and found:\n' + '\n'.join(f'- {x}' for x in left) +
                   '\nFix these in that file, then give the short summary again.')
     return out
 
@@ -429,13 +429,13 @@ def new_video(idea, root, style='Free (describe it in the idea)', seconds=60, vo
     shutil.copyfile(tpl, scene)
     task.cwd, task.edit_files = folder, [os.path.basename(scene)]
     voiced = bool(out['words'])
-    prompt = (f'Job{" 2 of 2" if voiced else ""}: make the PICTURE - a Shadow scene for this video.\nIdea: {idea}\nStyle: {style} - {look}\n'
+    prompt = (f'Job{" 2 of 2" if voiced else ""}: make the PICTURE - a Seekframe scene for this video.\nIdea: {idea}\nStyle: {style} - {look}\n'
               + (f'This channel\'s own guide (read it for the look): {sk}\n' if sk else '') +
               f'"{os.path.basename(scene)}" in this folder is a working template: rewrite it into the real video (Write or Edit). '
               f'window.DURATION = {out["duration"]}.\n'
               + (f'The narration is "{os.path.basename(out["script"])}" and its word times are in "{os.path.basename(out["words"])}" '
                  '({"words":[{"w","s","e"}]}, seconds): read them and time every visual change to the words that mention it '
-                 '(put the times as constants in the scene). Shadow adds the voice and big word captions at the bottom by itself: '
+                 '(put the times as constants in the scene). Seekframe adds the voice and big word captions at the bottom by itself: '
                  'do NOT play audio or draw subtitles yourself, keep the bottom 25% of the picture free, keep the 2D canvas '
                  '(captions only work on a 2D canvas) and turn the music bed down under the voice (k.voiceover).\n' if voiced else
                  'There is no voice: on-screen titles and labels tell the story; keep the music bed (STYLE_SOUND) and make it fit.\n') +

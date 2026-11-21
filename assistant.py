@@ -33,7 +33,7 @@ ALLOWABLE = set(ASK_TOOLS) | set(READ_TOOLS)         # what "Allow once" may eve
 PAID_ENV = ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY')
 SUBSCRIPTION_AUTH = ('claude.ai', 'oauth_token')     # `claude auth status` authMethod values that use the subscription
 
-SYSTEM = """You are the assistant inside the Shadow desktop app (its Assistant panel). Shadow renders three.js HTML scenes and
+SYSTEM = """You are the assistant inside the Seekframe desktop app (its Assistant panel). Seekframe renders three.js HTML scenes and
 Blender .blend scenes to MP4 (1080p, 30 fps, with sound; 16:9 and 9:16 Shorts) for the owner's YouTube channels.
 Tools: the shadow_* MCP tools (render, plan, progress, check_frames, qc, outputs, info, jobs, cancel) and Read/Glob/Grep for
 reading files. You cannot run commands, edit, move or delete files - say so if asked and tell the owner how to do it himself.
@@ -42,7 +42,7 @@ until the job ends -> shadow_qc / shadow_outputs. A render you start lives only 
 calling shadow_progress(wait_seconds=55) until the job has finished, then report the result (outputs, QC, warnings) briefly.
 Files are never overwritten (a new _2 file is made). shadow_cancel stops a render: ask the owner first; if it is blocked the
 app shows him an "Allow once" button. YouTube: shadow_upload_preview(video) shows what would be uploaded - show it to the
-owner; shadow_upload sends it and is blocked until he clicks "Allow once", then follow it with shadow_upload_progress. Each message starts with a [Shadow app] block describing the app's queue and settings;
+owner; shadow_upload sends it and is blocked until he clicks "Allow once", then follow it with shadow_upload_progress. Each message starts with a [Seekframe app] block describing the app's queue and settings;
 "this folder" / "these scenes" usually means those. Reply in the owner's language (Arabic, Iraqi dialect is fine), short
 and direct, plain text (no tables)."""
 
@@ -97,7 +97,7 @@ def check_ready(exe, run=subprocess.run, env=None):
     m = st.get('authMethod', '')
     if m and m not in SUBSCRIPTION_AUTH:
         return False, (f'Claude Code is signed in with "{m}" (paid per use), not your Claude subscription.\n'
-                       'Shadow only uses the subscription. In a terminal run:  claude auth login  and pick your Claude account.')
+                       'Seekframe only uses the subscription. In a terminal run:  claude auth login  and pick your Claude account.')
     plan = st.get('subscriptionType') or st.get('planTier') or ''
     return True, f'Claude Code ready ({m or "signed in"}{", " + plan if plan else ""})'
 
@@ -124,7 +124,7 @@ def server_entry(frozen=None, repo=None, claude_json=None, python=None):
     return None
 
 
-NO_SERVER = ("Shadow's MCP server is not set up, so the assistant cannot use Shadow. It needs a copy of Shadow's source; then run:\n"
+NO_SERVER = ("Seekframe's MCP server is not set up, so the assistant cannot use Seekframe. It needs a copy of Seekframe's source; then run:\n"
              '  claude mcp add shadow --scope user -- python C:\\path\\to\\shadow\\tools\\mcp_server.py\n'
              'Details: docs/MCP.md.')
 
@@ -179,7 +179,7 @@ def parse_event(d, seen_text=None):
     if t == 'system' and d.get('subtype') == 'init':
         out.append(('session', d.get('session_id')))
         bad = [s.get('name') for s in d.get('mcp_servers') or [] if s.get('status') not in ('connected', None)]
-        if bad: out.append(('warn', 'Shadow MCP server not connected (' + ', '.join(map(str, bad)) + '): the shadow tools are missing.'))
+        if bad: out.append(('warn', 'Seekframe MCP server not connected (' + ', '.join(map(str, bad)) + '): the shadow tools are missing.'))
     elif t == 'stream_event':
         e = d.get('event') or {}
         if e.get('type') == 'message_start':

@@ -123,7 +123,7 @@ def sign_in(open_browser=webbrowser.open, timeout=300, client=None):
             if 'code' in q or 'error' in q:
                 got.update({k: v[0] for k, v in q.items()})
                 ok = 'code' in q and q.get('state', [''])[0] == state
-                body = ('<h2>Shadow: signed in. You can close this tab.</h2>' if ok else '<h2>Shadow: sign-in failed. Close this tab and try again.</h2>')
+                body = ('<h2>Seekframe: signed in. You can close this tab.</h2>' if ok else '<h2>Seekframe: sign-in failed. Close this tab and try again.</h2>')
             else: body = ''
             self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers()
             self.wfile.write(body.encode())
@@ -149,7 +149,7 @@ def sign_in(open_browser=webbrowser.open, timeout=300, client=None):
                                        redirect_uri=redirect, grant_type='authorization_code', code_verifier=verifier))
     if st != 200: raise _api_error(st, body)
     tok = json.loads(body)
-    if not tok.get('refresh_token'): raise YouTubeError('Google gave no refresh token; remove Shadow at myaccount.google.com/permissions and sign in again')
+    if not tok.get('refresh_token'): raise YouTubeError('Google gave no refresh token; remove Seekframe (older sign-ins: Shadow) at myaccount.google.com/permissions and sign in again')
     ch = my_channel(tok['access_token'])
     t = load_tokens()
     t[ch['id']] = dict(title=ch['title'], refresh_token=tok['refresh_token'], access_token=tok['access_token'],

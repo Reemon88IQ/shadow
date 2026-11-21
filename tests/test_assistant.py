@@ -218,7 +218,7 @@ def a8():
         check('A8 Save to readable (--add-dir)', os.path.normcase(a.out_dir.get()) in [os.path.normcase(x) for x in c['argv'][1:]]
               if os.path.isdir(a.out_dir.get()) else True)
         ctx = a.ai_context()
-        check('A8 context block lists the queue and settings', ctx.startswith('[Shadow app]') and scene in ctx and 'Quality:' in ctx, ctx)
+        check('A8 context block lists the queue and settings', ctx.startswith('[Seekframe app]') and scene in ctx and 'Quality:' in ctx, ctx)
         a.ai_send('please CANCEL')
         ok = pump(lambda: a.ai_allow_bar.winfo_manager() == 'pack' and str(a.ai_send_btn['state']) == 'normal')
         check('A8 blocked cancel -> Allow once bar', ok and 'blocked: shadow_cancel' in text() and 'shadow_cancel' in a.ai_allow_lbl.cget('text'), text())

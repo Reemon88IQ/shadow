@@ -5,7 +5,7 @@ Usage: python tests/test_updater.py      exit 0 = every check PASS, 1 = any FAIL
   U5 the real App (hidden window): newer release -> 'Update to vX' button; Update downloads and hands the file to the installer step
   U6 same version: 'Check for updates'; pressing it says latest / warns when offline / finds a release added later
 Settings, log and %TEMP%\\Shadow-update of the real user are not touched (all point into a temp folder)."""
-import hashlib, http.server, json, os, shutil, sys, tempfile, threading, time, traceback
+import re, hashlib, http.server, json, os, shutil, sys, tempfile, threading, time, traceback
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -59,6 +59,13 @@ def u2():
     STATE['release'] = release('v3.1', draft=True); assert updater.latest_release() is None
     STATE['release'] = release('v3.1', name='Shadow.zip'); assert updater.latest_release() is None
     STATE['release'] = release('nightly'); assert updater.latest_release() is None
+    # 3.25 rename: a release carries Seekframe-X.Y-Setup.exe plus the same file as Shadow-X.Y-Setup.exe (for copies up to 3.24)
+    rel = release('v3.25', name='Shadow-3.25-Setup.exe'); new = dict(rel['assets'][1], name='Seekframe-3.25-Setup.exe',
+                                                                       browser_download_url=f'{BASE}/dl/Seekframe-3.25-Setup.exe')
+    rel['assets'].append(new); STATE['release'] = rel
+    assert updater.latest_release()['name'] == 'Seekframe-3.25-Setup.exe', 'the new name is preferred when both are there'
+    STATE['release'] = release('v3.25', name='Seekframe-3.25-Setup.exe'); assert updater.latest_release()['version'] == '3.25'
+    assert re.match(r'^Shadow-[\d.]+-Setup\.exe$', 'Shadow-3.25-Setup.exe'), 'what copies up to 3.24 look for (their ASSET_RE)'
 
 def u3():
     old = os.environ['SHADOW_UPDATE_URL']; os.environ['SHADOW_UPDATE_URL'] = 'http://127.0.0.1:1/latest'

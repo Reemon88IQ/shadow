@@ -6,9 +6,9 @@ render_core.VERSION it offers to download the setup (size + sha256 checked) and 
 SHADOW_UPDATE_URL overrides the API url (tests point it at a local server)."""
 import hashlib, json, os, re, urllib.request
 
-REPO = 'Reemon88IQ/shadow'   # the public GitHub repo (owner/name) whose releases are checked
+REPO = 'Reemon88IQ/seekframe'   # the public GitHub repo (owner/name) whose releases are checked
 API = 'https://api.github.com/repos/{repo}/releases/latest'
-ASSET_RE = re.compile(r'^Shadow-[\d.]+-Setup\.exe$', re.I)
+ASSET_RE = re.compile(r'^(Seekframe|Shadow)-[\d.]+-Setup\.exe$', re.I)   # Seekframe since 3.25 (the app was called Shadow before)
 
 
 class UpdateError(Exception):
@@ -47,7 +47,7 @@ def latest_release(repo=None, timeout=8):
         raise UpdateError(f'update check failed: {e}') from e
     ver = parse_version(d.get('tag_name'))
     if not ver or d.get('draft') or d.get('prerelease'): return None
-    for a in d.get('assets') or []:
+    for a in sorted(d.get('assets') or [], key=lambda x: not str(x.get('name', '')).lower().startswith('seekframe')):   # the new name first
         if ASSET_RE.match(a.get('name', '')) and a.get('browser_download_url'):
             dg = a.get('digest') or ''   # GitHub gives 'sha256:<hex>' for release assets
             return {'version': str(d['tag_name']).strip().lstrip('vV'), 'tag': d.get('tag_name'), 'url': a['browser_download_url'],

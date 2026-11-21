@@ -1,6 +1,6 @@
 # Upload to YouTube
 
-Shadow can upload finished videos straight to your channel, with the title, description, tags and *Made for Kids* setting
+Seekframe can upload finished videos straight to your channel, with the title, description, tags and *Made for Kids* setting
 from a `metadata.txt` file. It uses the free **YouTube Data API** with **your own** Google Cloud project, so nothing goes
 through anyone else's server and your password is only ever typed on Google's own page.
 
@@ -11,7 +11,7 @@ through anyone else's server and your password is only ever typed on Google's ow
 
 1. Open [Google Cloud console](https://console.cloud.google.com/) and create a project (or use an existing one).
 2. **APIs & Services → Library → YouTube Data API v3 → Enable.**
-3. **Google Auth Platform → Get started:** app name `Shadow`, your support email, audience **External**, your contact
+3. **Google Auth Platform → Get started:** app name `Seekframe`, your support email, audience **External**, your contact
    email, agree to the policy, **Create**.
 4. **Audience → Test users → Add users:** the Google account(s) that own the channels you upload to.
 5. **Clients → Create client → Desktop app**, name it, **Create**, then **Download JSON** and save it as
@@ -19,7 +19,7 @@ through anyone else's server and your password is only ever typed on Google's ow
 
 While the app is in *Testing*, a sign-in lasts 7 days. Publishing the app (*Audience → Publish app*; Google asks for a
 homepage and a privacy policy link first) makes it last; Google then shows an "unverified app" screen at sign-in until
-the app is verified - choose *Advanced → Go to Shadow*.
+the app is verified - choose *Advanced → Go to Seekframe*.
 
 ## Use it
 
@@ -29,7 +29,7 @@ the app is verified - choose *Advanced → Go to Shadow*.
 2. Press **YouTube...** (next to *Open log*). The dialog lists the videos you just rendered for the selected rows (or all
    rows). **Add video...** picks any other mp4.
 3. **Sign in...** once per channel: Google's page opens in your browser, you pick the account and allow *upload videos* and
-   *see your channel*. Shadow keeps only a refresh token in `%USERPROFILE%\.shadow_youtube_tokens.json`.
+   *see your channel*. Seekframe keeps only a refresh token in `%USERPROFILE%\.shadow_youtube_tokens.json`.
 4. Choose the channel, check the titles, press **Upload**. Privacy is **Private** by default. Double-click a finished row
    (or **Open in Studio**) to check it in YouTube Studio, then schedule or publish it there.
 5. Checkboxes: **Altered or synthetic (AI) content** (set from `AI:` in metadata.txt), **Set thumbnail** and **Schedule**
@@ -37,7 +37,7 @@ the app is verified - choose *Advanced → Go to Shadow*.
    A thumbnail YouTube refuses (custom thumbnails need a [verified channel](https://www.youtube.com/verify)) never stops the upload:
    the row says *no thumbnail* and why.
 
-To remove Shadow's access: [myaccount.google.com/permissions](https://myaccount.google.com/permissions) → Shadow → Remove.
+To remove Seekframe's access: [myaccount.google.com/permissions](https://myaccount.google.com/permissions) → Seekframe → Remove.
 
 ## metadata.txt
 
@@ -70,7 +70,7 @@ Optional fields:
 | `CATEGORY:` | music, education, science, entertainment, film or a number (default music) |
 | `PRIVACY:` | private, unlisted or public |
 | `AI: yes` / `AI: no` | YouTube's *altered or synthetic content* label (`status.containsSyntheticMedia`). Without it the dialog's checkbox decides (off by default) |
-| `THUMBNAIL: cover.jpg` | the thumbnail image, relative to metadata.txt (JPG/PNG, up to 2 MB). Without it Shadow uses `<video>_thumb.jpg` next to the video (saved when the scene sets `window.THUMBNAIL_T`). Shorts get one only from this field |
+| `THUMBNAIL: cover.jpg` | the thumbnail image, relative to metadata.txt (JPG/PNG, up to 2 MB). Without it Seekframe uses `<video>_thumb.jpg` next to the video (saved when the scene sets `window.THUMBNAIL_T`). Shorts get one only from this field |
 | `PUBLISH:` | schedules the video when it holds a date **and** a time: `Thu 19 Nov 2026, 5:00 AM Sydney time`, `2026-11-25 05:00`, `2026-11-25T05:00+11:00`, `19 Nov 2026 9 pm UTC`. Zone words: Sydney, Melbourne, Baghdad, London, New York, UTC; none = this PC's zone. A Short's `PUBLISH: same time as the full video` takes the full video's time. Text without a date (`5:00 AM Sydney time`) is ignored, shown as *(not a date)* |
 
 Without a metadata.txt the title is made from the file name.
@@ -78,7 +78,7 @@ YouTube's limits are applied: title 100 characters, description 5000 bytes, tags
 
 ## From Claude (MCP)
 
-Claude can upload through Shadow's MCP server ([MCP.md](MCP.md)): `shadow_upload_preview` shows what would be sent,
+Claude can upload through Seekframe's MCP server ([MCP.md](MCP.md)): `shadow_upload_preview` shows what would be sent,
 and `shadow_upload` uploads it after you say yes. In the Assistant panel the upload always asks for **Allow once**.
 
 ## Command line
@@ -102,4 +102,4 @@ The API has a free daily quota (10,000 units by default); an upload costs about 
 
 ## Privacy
 
-What Shadow stores and sends: [PRIVACY.md](PRIVACY.md).
+What Seekframe stores and sends: [PRIVACY.md](PRIVACY.md).

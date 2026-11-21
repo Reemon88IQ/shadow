@@ -257,7 +257,7 @@ def q7():
              ('empty word list', lambda: a.set_narration(N2D, VOICE, empty), 'non-empty list'),
              ('bad style', lambda: a.set_narration(N2D, VOICE, WORDS, style='bounce'), 'style must be'),
              ('scene already narrated', lambda: a.set_narration(NOLD, VOICE, WORDS), 'already has narration'),
-             ('scene without SOUND kit', lambda: a.set_narration(NPLAIN, VOICE, WORDS), 'not a Shadow scene')]
+             ('scene without SOUND kit', lambda: a.set_narration(NPLAIN, VOICE, WORDS), 'not a Seekframe scene')]
     for label, fn, text in cases:
         try: err = fn()
         except Exception as e: err = f'RAISED {type(e).__name__}: {e}'
