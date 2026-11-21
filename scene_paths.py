@@ -3,6 +3,7 @@ Split out of app.py (3.16). app.py imports every name back, so app.scene_folder_
 import glob, os, re
 import render_core as rc
 import blender_core as bc
+import video_song as vsong
 
 SCENE_EXTS = ('.html', '.htm') + bc.EXTS   # HTML (three.js) scenes and Blender .blend scenes
 
@@ -35,6 +36,7 @@ def scene_info(path):
     """What the scene source supports: 9:16 needs it to read the h URL param (get('h')). Sound is checked at render time.
     A .blend always 'supports' 9:16: it uses its 9:16 camera, or the 16:9 camera centre-cropped (warned at render time)."""
     if bc.is_blend(path): return {'vertical': True, 'blender': True}
+    if vsong.is_video(path): return {'vertical': True, 'video': True}   # a finished video keeps its own shape
     try:
         with open(path, encoding='utf-8', errors='replace') as f: src = f.read()
     except Exception:
@@ -161,7 +163,10 @@ def find_scene_audio(scene_path):
 def format_vertical(scene_path, fmt_label):
     """True = 9:16 for this file. fmt_label is the Format combobox label; in Auto (by file name) a scene whose file name
     starts with "short_" or ends with "-short" / "_short" / " short" (also "...shorts"; any case) is 9:16, every other one
-    16:9. Unknown labels -> 16:9. Pure (no disk access)."""
+    16:9. Unknown labels -> 16:9. Pure (no disk access), except a video + song (3.18): its own shape decides, whatever Format says."""
+    if vsong.is_video(scene_path):
+        try: p = vsong.probe(scene_path); return p['h'] > p['w']
+        except Exception: return False
     if fmt_label == FORMAT_AUTO:
         stem = os.path.splitext(os.path.basename(scene_path))[0].lower()
         return stem.startswith(SHORT_PREFIX) or stem.endswith(SHORT_SUFFIXES)

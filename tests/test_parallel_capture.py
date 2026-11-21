@@ -96,6 +96,7 @@ check('F5 cancel during parallel capture -> Cancelled quickly, no mp4 / .part le
 
 # ---------------------------------------------------------------- F6
 q = rc.PRESETS.get('1440p (QHD, 64 samples)'); u = rc.PRESETS.get('4K (UHD, 64 samples)')
+os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
 import app
 check('F6 presets: 1440p 2560 wide, 4K 3840 wide; expected sizes 16:9 and 9:16', q and u and q['w'] == 2560 and u['w'] == 3840
       and app.expected_size(u, False) == (3840, 2160) and app.expected_size(u, True) == (2160, 3840) and app.expected_size(q, False) == (2560, 1440))

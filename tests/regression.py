@@ -65,6 +65,7 @@ def t3(tmp):
     comes out at the wrong size (which is what the GUI's size check catches), and 16:9 renders normally."""
     old = os.path.join(FIX, 'outdated_no_h.html')
     try:
+        os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
         import app   # pure helper only; no window is created
         flagged = app.scene_info(old)['vertical'] is False and app.scene_info(WEBGL)['vertical'] is True
     except Exception as e:

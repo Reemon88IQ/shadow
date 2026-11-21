@@ -114,6 +114,8 @@ stays open, so jobs survive a client restart.
 | `shadow_check_frames(scene, only, times, show_sheet)` | `tools/check_frames.py`: contact sheet (returned as an image), page errors, seek(t) purity |
 | `shadow_qc(path, rerun, quality)` | read `.qc.txt` for an mp4 / folder; `rerun` checks the mp4 again |
 | `shadow_outputs(path or job_id)` | videos (size, duration, audio, QC status), QC reports, logs, thumbnails |
+| `shadow_video_look(video, song)` | 3.18: a finished video + its song (`<video>.mp3` next to it by default): contact sheet (as an image), motion every 0.5 s, cuts, loop point, the song's BPM / chorus and the automatic plan |
+| `shadow_video_song(video, song, mode, song_start, loop_end, out_dir, folder)` | renders it like the queue (Music folder, QC, thumbnail); `mode auto|chorus|loop|trim|as_is`, `-1` = the plan's value; follow with `shadow_video_song_progress(job_id, wait_seconds=50)` |
 | `shadow_youtube` | signed-in YouTube channels, whether the OAuth client file is there (setup: [YOUTUBE.md](YOUTUBE.md)) |
 | `shadow_upload_preview(video, channel, privacy, ai, thumbnail, publish, meta, scene)` | what an upload WOULD send (title, description, tags, privacy, AI label, publish time UTC, thumbnail, notes); sends nothing |
 | `shadow_upload(same arguments)` | uploads in the background, returns `upload_id`. Only after the owner approved the preview. Private by default |

@@ -133,6 +133,7 @@ def main():
         # under _MEIPASS/tools/narrate (--add-data). Fake that: a bundle folder with the .js only (captions.js marked),
         # the real tools/narrate at the END of sys.path standing in for the PYZ archive.
         if ROOT not in sys.path: sys.path.insert(0, ROOT)
+        os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
         import app
         fake = j('fake _MEIPASS'); kit = os.path.join(fake, 'tools', 'narrate'); os.makedirs(kit)
         shutil.copy(os.path.join(TOOL_DIR, 'wrap_tail.js'), kit)

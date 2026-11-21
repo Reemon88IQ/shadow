@@ -263,6 +263,7 @@ srv.shutdown()
 
 # ---------------------------------------------------------------- the YouTube... dialog (upload faked)
 try:
+    os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
     import app
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import no_dialogs; no_dialogs.block(app)   # never a real window on the screen
     real_log = app.LOG; stat = lambda p: (os.path.getsize(p), os.path.getmtime(p)) if os.path.isfile(p) else None; real_before = stat(real_log)

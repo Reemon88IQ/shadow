@@ -41,6 +41,13 @@ logs and videos are kept. The update waits while a render is running.
 **Uninstall.** Windows *Settings → Apps → Installed apps → Shadow → Uninstall*. Your settings file and log
 (see [Settings, logs and privacy](#settings-logs-and-privacy)) and your videos are left in place; delete them by hand if you want.
 
+## Language
+
+The list at the top of the window (next to *Light / Dark*) sets the language of Shadow's window: English, العربية, 中文,
+हिन्दी, Español, Français, Português, Русский, Bahasa Indonesia, Deutsch, 日本語, or **Auto (Windows)**, which uses your
+Windows display language when Shadow has it and English otherwise. Shadow asks to restart and opens in the new language.
+Only what you read changes: settings, projects, file names and the log stay the same in every language.
+
 ## The window
 
 **Top bar**
@@ -200,6 +207,48 @@ Everything else renders 16:9. So one queue can make the video and its Short toge
 
 A scene must read the `h` URL parameter and lay itself out for a tall frame to support 9:16. Before rendering 9:16,
 Shadow checks each scene and asks what to do with scenes that do not (they would look like a squeezed 16:9).
+
+## Smart Shadow (AI)
+
+Shadow can hand work to Claude through **your Claude subscription** and the installed Claude Code (the same as the
+Assistant panel; it refuses API keys, so nothing is billed per use). Claude can read files, and it can change only the
+one file a job is about. It cannot run programs or open web pages.
+
+**New video (AI)...** (top bar)
+1. Write the idea in any language, and pick a **Style** and a **Length**.
+2. Keep **English voice + word captions** on if it is available (it needs Kokoro installed on this PC; without it the video
+   gets a music bed and titles instead).
+3. Press **Make the video**. Claude writes the narration, Shadow makes the voice and the word timings, Claude builds the
+   scene to follow the words, and Shadow checks it (scene rules + frames in 16:9 and 9:16). Anything wrong goes back to
+   Claude, up to three times. A 30-second video took about 8 minutes in a test.
+4. The scene is added to the queue with its voice attached. Check frames, then Render.
+Each idea gets its own folder under *Save scenes in* (default `Videos\Shadow scenes`); nothing is overwritten.
+
+**AI...** (under the table, one row selected)
+- **Fix the scene**: the box starts with what Shadow saw go wrong for that row (a failed render and its log, a quality
+  check warning, Check frames problems). Add your own words, e.g. *the title is cut off in the Short*. Claude fixes a copy,
+  Shadow checks it, and you see the changes line by line. **Apply** puts the fix in place and keeps the original in
+  `.shadow_backup` next to the scene; **Discard** throws the copy away. *Check frames* has a **Fix with AI...** button too.
+- **Write YouTube text** (after the row was rendered): Claude looks at frames of the video and writes `metadata.txt` next
+  to it, which *YouTube...* uses. If one is there already, Shadow asks whether to replace it (the old one is kept) or write
+  `metadata_2.txt`.
+
+## A finished video + a song
+
+Shadow can also join a video you already have (.mp4, .mov, .m4v, .webm, .mkv) with a song. Put the song next to it with
+the same name (`dance.mp4` + `dance.mp3`), or pick it with Sound = *External file...*, and add the video like a scene.
+
+Shadow looks at the video (how much it moves every half second, hard cuts, its strongest moment, where it could loop) and
+at the song (beats, chorus), then:
+- a 9:16 clip, or any clip with a song of 60 s or less: takes the **chorus** of the song, starting on a beat so the
+  video's strongest moment lands on the chorus, with a short fade at the end;
+- a short 16:9 clip with a longer song: **loops** the video to the song's length, with a soft crossfade at the seam;
+- a video longer than the song: **cuts** it to the song and fades out.
+
+The video keeps its own size and shape (Format is ignored for it), the song is set to -14 LUFS like every song render,
+and the result goes to the *Music* folder with a QC report and a thumbnail at the strongest moment. *Check frames* on a
+video row shows a contact sheet and the plan (where the song starts, where it loops) before you render.
+From Claude, `shadow_video_look` and `shadow_video_song` do the same and let Claude change the start or loop point.
 
 ## Blender scenes
 

@@ -91,6 +91,7 @@ check('S3 real ffmpeg failure -> "ffmpeg failed: ..." with its own words, one li
 
 # ---------------------------------------------------------------- S4 GUI
 try:
+    os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
     import app
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import no_dialogs; no_dialogs.block(app)   # never a real window on the screen
     app.LOG = os.path.join(tmp, 'shadow.log'); app.LOG_DIR = os.path.join(tmp, 'logs')

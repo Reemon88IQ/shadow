@@ -6,6 +6,7 @@ sys.path.insert(0, ROOT)
 try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')   # Arabic names on a cp1252 console
 except Exception: pass
 import threading
+os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
 import app
 from app import unique_path, scene_folder_name, find_scene_audio, resolve_audio, sound_mode, format_vertical   # importing app does not open a window
 

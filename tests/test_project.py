@@ -10,6 +10,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, ROOT)
 try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 except Exception: pass
+os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
 import app
 
 fails = []

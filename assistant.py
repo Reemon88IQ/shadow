@@ -24,7 +24,8 @@ NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 NL = '\n'
 SERVER = 'shadow'
 SAFE_TOOLS = [f'mcp__{SERVER}__shadow_{t}' for t in ('info', 'plan', 'render', 'progress', 'jobs', 'check_frames', 'qc', 'outputs',
-                                                     'youtube', 'upload_preview', 'upload_progress', 'upload_cancel')]
+                                                     'youtube', 'upload_preview', 'upload_progress', 'upload_cancel',
+                                                     'video_look', 'video_song', 'video_song_progress')]   # video+song only makes new files
 ASK_TOOLS = [f'mcp__{SERVER}__shadow_{t}' for t in ('cancel', 'upload')]   # denied unless the owner clicks "Allow once"
 READ_TOOLS = ['Read', 'Glob', 'Grep']                # built-in tools that exist at all; reading outside the folders asks
 ALLOWABLE = set(ASK_TOOLS) | set(READ_TOOLS)         # what "Allow once" may ever grant (nothing that runs code or edits)

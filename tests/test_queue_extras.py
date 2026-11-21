@@ -16,6 +16,7 @@ sys.path.insert(0, ROOT); sys.path.insert(0, HERE); sys.path.insert(0, os.path.j
 try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 except Exception: pass
 import render_core as rc
+os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
 import app
 import subtitles
 

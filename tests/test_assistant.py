@@ -178,6 +178,7 @@ def a7():
     check('A7 no MCP server -> setup message', r3.kinds('error') and 'MCP server is not set up' in r3.kinds('error')[0][1], r3.ev)
 
 def a8():
+    os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
     import app
     app.CFG = os.path.join(TMP, 'cfg.json'); app.LOG = os.path.join(TMP, 'shadow.log'); app.LOG_DIR = os.path.join(TMP, 'logs')
     for h in list(app.log.handlers): app.log.removeHandler(h)

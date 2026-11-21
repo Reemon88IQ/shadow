@@ -20,6 +20,7 @@ sys.path.insert(0, ROOT); sys.path.insert(0, os.path.join(ROOT, 'tools')); sys.p
 try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 except Exception: pass
 import render_core as rc
+os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
 import app
 import mcp_server as ms
 from regression import KW, probe
@@ -238,8 +239,9 @@ async def m6_async(tmp, d):
             names = sorted(t.name for t in (await s.list_tools()).tools)
             want = sorted(['shadow_info', 'shadow_plan', 'shadow_render', 'shadow_progress', 'shadow_cancel', 'shadow_jobs',
                            'shadow_check_frames', 'shadow_qc', 'shadow_outputs', 'shadow_youtube', 'shadow_upload_preview',
-                           'shadow_upload', 'shadow_upload_progress', 'shadow_upload_cancel'])
-            check('M6 stdio server lists the 14 tools', names == want, names)
+                           'shadow_upload', 'shadow_upload_progress', 'shadow_upload_cancel',
+                           'shadow_video_look', 'shadow_video_song', 'shadow_video_song_progress'])
+            check('M6 stdio server lists the 17 tools', names == want, names)
             info = J(await s.call_tool('shadow_info', {}))
             check('M6 started with a client cut-down environment, the server still finds Chrome / ffmpeg / playwright',
                   info['ready'] == all(rc.check_env().values()), info['env'])
@@ -313,7 +315,7 @@ async def m7_async(tmp):
             async with ClientSession(r, w) as s:
                 await s.initialize()
                 names = sorted(t.name for t in (await s.list_tools()).tools)
-                check('M7 MCP over HTTP lists the 14 tools', len(names) == 14 and 'shadow_render' in names, names)
+                check('M7 MCP over HTTP lists the 17 tools', len(names) == 17 and 'shadow_render' in names, names)
                 info = json.loads((await s.call_tool('shadow_info', {})).content[0].text)
                 check('M7 shadow_info over HTTP', info.get('version') == rc.VERSION, info.get('version'))
         req = urllib.request.Request(f'http://127.0.0.1:{port}/mcp', method='POST', data=b'{}',

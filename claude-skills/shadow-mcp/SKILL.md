@@ -23,6 +23,7 @@ all, the server is not connected: say so and point to `docs/MCP.md` (do not chan
 | Stop | `shadow_cancel(job_id)` = Stop queue; `current_only=True` = Cancel current (the queue goes on) |
 | Quality report | `shadow_qc(mp4 or folder)`; `rerun=True` checks an mp4 again |
 | What was made | `shadow_outputs(job_id=...)` or `shadow_outputs(path=folder)` |
+| A finished video + a song -> music video (3.18) | `shadow_video_look(video, song)` -> LOOK at the sheet + motion / cuts / loop point / chorus / plan; then `shadow_video_song(video, song, mode, song_start, loop_end)` (-1 = the plan's), follow with `shadow_video_song_progress(job_id, wait_seconds=50)` |
 | Which YouTube channels are signed in | `shadow_youtube` (Shadow 3.14+) |
 | What an upload would send | `shadow_upload_preview(video, scene=..., ...)` - sends nothing |
 | Upload to YouTube | `shadow_upload(same arguments)` -> upload_id, then `shadow_upload_progress(upload_id, wait_seconds=50)` |

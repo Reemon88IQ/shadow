@@ -17,6 +17,7 @@ sys.path.insert(0, ROOT); sys.path.insert(0, HERE)
 try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 except Exception: pass
 import render_core as rc
+os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
 import app
 import qc
 from regression import browsers, probe, render_dirs, _band_db   # helpers only (its tests run only under __main__)

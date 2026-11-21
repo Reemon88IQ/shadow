@@ -3,6 +3,42 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
+## 3.20
+- **Shadow in your language**: English, العربية, 中文, हिन्दी, Español, Français, Português, Русский, Bahasa Indonesia,
+  Deutsch and 日本語. Pick it from the list at the top (Auto = your Windows language); Shadow restarts in it. Buttons,
+  options, messages, the Status column and the windows are translated. Your settings and projects stay the same in every
+  language, so switching back and forth changes nothing else.
+- Arabic, Hindi, Chinese and Japanese use a Windows font that has their letters, so the text is sharp instead of small
+  and blurry.
+- Smart Shadow answers in the app's language when you don't write a note of your own.
+
+## 3.19
+- **Smart Shadow - Claude inside the app** (through your Claude subscription and the installed Claude Code, like the
+  Assistant: no API key, nothing paid per use). Claude can only read files and change the one file each job is about.
+- **New video (AI)...** (top bar): write an idea, pick a style and a length. Claude writes the narration, Shadow makes an
+  English voice with Kokoro (free, on your PC) and the word timings, Claude builds the scene to match the words, and Shadow
+  checks every frame and sends anything wrong back to Claude. The finished scene lands in the queue with its voice and word
+  captions attached: look at it, then Render. Without Kokoro installed the video gets music instead of a voice.
+- **AI...** (under the table), for the selected row:
+  - **Fix the scene**: starts from what went wrong (a failed render and its log, the quality check, Check frames) plus
+    anything you type. Claude fixes a copy, Shadow checks the copy again, and you see the changes. Nothing changes until you
+    press **Apply** (the original is kept in `.shadow_backup` next to it). *Check frames* now offers **Fix with AI...** too.
+  - **Write YouTube text**: Claude looks at the rendered video and writes `metadata.txt` (title, description, tags,
+    audience, AI label, Short section) that *YouTube...* uploads with. An existing one is never overwritten without asking.
+
+## 3.18
+- **Video + song**: drop a finished video (.mp4, .mov, .webm...) into Shadow with its song next to it (same name, e.g.
+  `dance.mp4` + `dance.mp3`) or choose the song with Sound = *External file*. Shadow looks at the video itself (motion,
+  cuts, the strongest moment, where it can loop) and at the song (beats, chorus) and joins them:
+  a 9:16 or short clip gets the song's chorus, placed so the video's strongest moment lands on it; a short 16:9 clip loops
+  to the song's length with a soft seam; a longer video is cut to the song. The song is loudness-matched like every song
+  render (-14 LUFS), the video keeps its own size, and it goes to the *Music* folder with a QC report and a thumbnail.
+  *Check frames* on a video shows a contact sheet and the plan before rendering.
+- From Claude (MCP): `shadow_video_look` shows Claude the video's frames and numbers, so Claude can decide where the song
+  starts or where the video loops, then `shadow_video_song` renders it.
+- Waddle Club tool: `assemble.py --sync lyrics` cuts the shots on the lyrics (each line gets the shot that shows it, real
+  freezes on "freeze" lines).
+
 ## 3.17
 - **Correct colours on YouTube**: videos are now converted and tagged as BT.709 (what YouTube and players use for HD).
   Before, the colours were converted the older BT.601 way and left untagged, so reds and greens shifted slightly once

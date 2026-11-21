@@ -9,6 +9,9 @@ import qc
 import subtitles
 import updater
 import assistant
+import video_song as vsong
+import i18n
+from i18n import t as tr   # 3.20: the UI language (locales/<code>.json); keys and the log stay English
 import youtube   # noqa: F401  (YouTubeDialog imports it again; listed here so PyInstaller bundles it)
 # 3.16: these parts live in their own modules; their names are imported back so app.<name> works everywhere
 from scene_paths import *   # noqa: F401,F403  (names, folders, Format / Sound / Folder)
@@ -314,6 +317,12 @@ def render_item(scene, mp4, preset, opts, narr=None, cancel=None, progress=lambd
     build the hidden temp scene, force sound='generated' (the voice is mixed inside the page's SOUND kit), render it
     to mp4 (the name comes from the caller, i.e. the original scene) and always delete the temp file."""
     opts = dict(opts); bl = {k: opts.pop(k) for k in ('engine', 'device', 'allow_scripts') if k in opts}   # Blender-only settings
+    vo = {k: opts.pop(k) for k in ('video_mode', 'song_start', 'loop_end') if k in opts}   # video + song only (3.18)
+    if vsong.is_video(scene):   # a finished video + a song: video_song arranges and joins them (no browser)
+        if narr: raise ValueError('narration is for HTML scenes; a video gets a song (put <video>.mp3 next to it)')
+        song = opts.get('audio_file') if opts.get('sound') == 'file' else None
+        return vsong.render(scene, song, mp4, mode=vo.get('video_mode') or 'auto', song_start=vo.get('song_start'),
+                            loop_end=vo.get('loop_end'), progress=progress, cancel=cancel, info=info)
     if opts.get('lufs') is None:   # loudness per channel: songs -14, the rest -15, or the scene's own shadow-lufs
         opts['lufs'] = target_lufs(scene, opts.get('sound', 'generated'), opts.get('audio_file'), narrated=bool(narr))
     if bc.is_blend(scene):   # Blender scene: same contract as rc.render (folders, audio rules, QC all the same)
@@ -353,10 +362,16 @@ def render_scene(f, preset, out, opts, narr=None, cancel=None, progress=lambda *
         fmt_name = '9:16 (Shorts)' if opts['vertical'] else '16:9 (YouTube)'
     opts.pop('format', None)   # render_item / render_core do not take it
     opts['vertical'] = bool(opts.get('vertical'))
+    if vsong.is_video(f):   # video + song: its own shape, and a song is needed whatever Sound says (Auto = <video>.mp3 next to it)
+        opts['vertical'] = format_vertical(f, FORMAT_AUTO); fmt_name = '9:16 (Shorts)' if opts['vertical'] else '16:9 (YouTube)'
+        if opts.get('sound') != 'file': opts['sound'] = 'auto'
+        narr = None
     main = category_folder(f, opts.pop('folder', None), opts.get('sound', 'generated'), opts.get('audio_file'), narrated=bool(narr or embedded))
     sub, name = output_place(f, opts['vertical'], main); folder = os.path.join(out, sub)
     if skip_done:   # already rendered and nothing it uses changed since: keep that file, render nothing
-        old = up_to_date(f, out, opts['vertical'], render_deps(f, opts, narr), expect=expected_size(preset, opts['vertical']), main=main)
+        old = up_to_date(f, out, opts['vertical'], render_deps(f, opts, narr),
+                         expect=None if vsong.is_video(f) else expected_size(preset, opts['vertical']), main=main)
+        if old and os.path.normcase(os.path.abspath(old)) == os.path.normcase(os.path.abspath(f)): old = None   # the source video itself
         if old:
             log.info('skipped %s: %s is up to date', f, old)
             return dict(status='skipped', row=SKIPPED_UP_TO_DATE, mp4=old, dur=None, error=None, log=None, qc=None, qc_report=None,
@@ -384,7 +399,7 @@ def render_scene(f, preset, out, opts, narr=None, cancel=None, progress=lambda *
         warns.extend(f'{os.path.basename(f)}: {w}' for w in used_mode.get('warnings', []))   # Blender: missing files, no 9:16 camera...
         silent = opts['sound'] == 'generated' and used_mode.get('sound') == 'none'
         if silent: warns.append(f'{os.path.basename(f)}: the scene has no sound, rendered silent.'); opts['sound'] = 'none'
-        exp = expected_size(preset, opts['vertical']); pr = probe(mp4)
+        exp = used_mode.get('size') or expected_size(preset, opts['vertical']); pr = probe(mp4)
         if pr is None:
             warns.append(f'{os.path.basename(mp4)}: could not check the output (ffprobe missing?).'); dur = None
         else:
@@ -469,7 +484,7 @@ def quality_check(mp4, preset, vertical, info, sound):
     the QC code itself broke - that is only logged. Never raises, never touches the mp4.
     info: render_core's info dict (duration = what was rendered); sound: the mode actually used ('none' = silent by design)."""
     try:
-        w, h = expected_size(preset, vertical)
+        w, h = (info or {}).get('size') or expected_size(preset, vertical)   # a video + song keeps the video's size
         res = qc.run_qc(mp4, dict(width=w, height=h, duration=(info or {}).get('duration'), silent=(sound == 'none'),
                                       lufs=(info or {}).get('lufs')))
         path = qc.write_report(mp4, res)
@@ -478,6 +493,16 @@ def quality_check(mp4, preset, vertical, info, sound):
     except Exception:
         log.error('qc crashed for %s (render kept as is)\n%s', mp4, traceback.format_exc())
         return None, None
+
+def video_check(video, song):
+    """Check frames for a video + song (3.18): Shadow's own look at the video (contact sheet <video>.check.jpg next to it,
+    motion, cuts, loop point), the song's beats / chorus and the arrangement it will render, as a frame_check-like result."""
+    sheet = os.path.splitext(video)[0] + '.check.jpg'
+    v = vsong.look(video, sheet=sheet)
+    if not song: return dict(ok=False, sheet=v['sheet'], problems=[f'no song: put {os.path.splitext(os.path.basename(video))[0]}.mp3 next to the video, or choose Sound = External file'],
+                             notes=vsong.describe(v, dict(dur=0, bpm=None, chorus=None, source='none'), dict(mode='-', reason='needs a song', song_start=0, out_dur=v['dur'], fade_out=0))[:4])
+    s = vsong.song_info(song, clip_len=v['dur']); pl = vsong.plan(v, s)
+    return dict(ok=True, sheet=v['sheet'], problems=[], notes=vsong.describe(v, s, pl))
 
 def expected_size(preset, vertical):
     w = preset['w']; return (round(w * 9 / 16), w) if vertical else (w, round(w * 9 / 16))
@@ -508,7 +533,7 @@ class App(Root):
     def __init__(self):
         super().__init__()
         setup_log()
-        self.title(f'Shadow v{rc.VERSION}')
+        self.title(tr('Shadow v{0}', rc.VERSION))
         base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))   # exe: unpacked bundle; source: project folder
         ico = os.path.join(base, 'assets', 'shadow.ico')
         try:
@@ -518,6 +543,7 @@ class App(Root):
         # so "Cancel current" stops only that file and can never leak into the next one
         self.q = queue.Queue(); self.cancel = threading.Event(); self.item_cancel = threading.Event(); self.worker = None
         cfg = load_cfg(); self.files = []; self.rows = {}
+        self.lang = i18n.set_lang(i18n.pick(cfg.get('language'))); self.lang_choice = cfg.get('language', 'auto')   # 3.20
         # the live queue: self.files (order) + self.state[path] = 'queued' | 'running' | 'finished' | 'skipped'.
         # The worker takes the next 'queued' file under self.lock, so files added/removed while rendering are honoured.
         self.state = {}; self.lock = threading.Lock()
@@ -537,6 +563,8 @@ class App(Root):
         self._run_t0 = {}      # path -> time its render started (the Time column shows how long it took)
         self._cur_left = None  # (path, seconds left) of the file rendering now
         self.check_thread = None; self.check_results = []; self.check_kw = {}   # Check frames (check_kw: tests pass Chrome options)
+        self.cfg_ai = dict(cfg.get('ai') or {})   # New video (AI): style, length, voice, dir, voice_python (3.19)
+        self.row_problems = {}   # path -> what went wrong last (render error + log, QC, Check frames): the AI window starts from it
         f = cfg.get('format'); self.fmt = tk.StringVar(value=f if f in FORMAT_CHOICES else '16:9 (YouTube)')
         c = OLD_CAPTURE_LABELS.get(cfg.get('capture'), cfg.get('capture')); self.capture = tk.StringVar(value=c if c in CAPTURES else next(iter(CAPTURES)))
         self.folders = [safe_rel_folder(x) for x in cfg.get('folders', DEFAULT_FOLDERS) if safe_rel_folder(x)] or list(DEFAULT_FOLDERS)
@@ -562,12 +590,12 @@ class App(Root):
     def start_update_check(self, manual=False):
         # automatic check (at start): only the installed exe, and silent when offline. manual = the 'Check for updates' button
         if not updater.configured():
-            if manual: messagebox.showinfo('Update', 'Updates are not set up in this build (updater.REPO).')
+            if manual: messagebox.showinfo(tr('Update'), tr('Updates are not set up in this build (updater.REPO).'))
             return
         if not manual and not (getattr(sys, 'frozen', False) or os.environ.get('SHADOW_UPDATE_URL')): return
         if self.update_checking: return
         self.update_checking = True
-        if manual: self.update_btn.config(text='Checking...', state='disabled')
+        if manual: self.update_btn.config(text=tr('Checking...'), state='disabled')
         def run():
             try:
                 rel = updater.latest_release()
@@ -581,26 +609,26 @@ class App(Root):
         else: self.start_update_check(manual=True)
     def show_update(self, rel, manual=False):
         self.update_checking = False; self.update_rel = rel
-        self.update_btn.config(text=f'Update to v{rel["version"]}', style='Accent.TButton', state='normal')
+        self.update_btn.config(text=tr('Update to v{0}', rel['version']), style='Accent.TButton', state='normal')
         if manual: self.do_update()
     def update_none(self, manual, info):
-        self.update_checking = False; self.update_btn.config(text='Check for updates', state='normal')
+        self.update_checking = False; self.update_btn.config(text=tr('Check for updates'), state='normal')
         if not manual: return
         if isinstance(info, Exception):
-            messagebox.showwarning('Update', f'Could not check for updates (no internet?).\n\n{info}')
+            messagebox.showwarning(tr('Update'), tr('Could not check for updates (no internet?).\n\n{0}', info))
         else:
-            messagebox.showinfo('Update', f'You have the latest version (v{rc.VERSION}).')
+            messagebox.showinfo(tr('Update'), tr('You have the latest version (v{0}).', rc.VERSION))
     def do_update(self):
         rel = self.update_rel
         if not rel or self.update_busy: return
         if not (getattr(sys, 'frozen', False) or os.environ.get('SHADOW_UPDATE_URL')):
-            messagebox.showinfo('Update', f'Shadow v{rel["version"]} is available. This copy runs from source: update it with git pull.'); return
+            messagebox.showinfo(tr('Update'), tr('Shadow v{0} is available. This copy runs from source: update it with git pull.', rel['version'])); return
         if self.worker and self.worker.is_alive():
-            messagebox.showinfo('Update', 'Wait until the render queue has finished, then press Update again.'); return
+            messagebox.showinfo(tr('Update'), tr('Wait until the render queue has finished, then press Update again.')); return
         # only the first paragraph (what changed); the rest of the release text is download help for the GitHub page
         first = re.split(r'\r?\n\s*\r?\n', rel['notes'].strip(), maxsplit=1)[0]
         notes = first[:1200] + ('...' if len(first) > 1200 else '')
-        if not messagebox.askyesno('Update', f'Shadow v{rel["version"]} is available (you have v{rc.VERSION}).\n\n'
+        if not messagebox.askyesno(tr('Update'), f'Shadow v{rel["version"]} is available (you have v{rc.VERSION}).\n\n'
                                    + (notes + '\n\n' if notes else '') + 'Download and install it now? Shadow closes and opens again by itself.'):
             return
         self.update_busy = True; self.update_btn.config(state='disabled'); self.go.config(state='disabled')
@@ -623,19 +651,26 @@ class App(Root):
         self.on_close()
     def update_failed(self, msg):
         self.update_busy = False; self.update_btn.config(state='normal'); self.go.config(state='normal')
-        self.status.config(text='Update failed'); messagebox.showerror('Update', f'{msg}\n\nYou can also download the setup from:\n{self.update_rel.get("page") or updater.REPO}')
+        self.status.config(text=tr('Update failed')); messagebox.showerror(tr('Update'), tr('{0}\n\nYou can also download the setup from:\n{1}', msg, self.update_rel.get('page') or updater.REPO))
 
     # ------------------------------------------------------------------ layout
     def build(self):
         P = 14
         top = ttk.Frame(self); top.pack(fill='x', padx=P, pady=(P, 6))
-        ttk.Label(top, text='Shadow', font='SunValleyTitleLargeFont').pack(side='left')
-        ttk.Label(top, text=f'  v{rc.VERSION}   HTML scene → MP4', foreground='#888').pack(side='left', pady=(6, 0))
+        ttk.Label(top, text=tr('Shadow'), font='SunValleyTitleLargeFont').pack(side='left')
+        ttk.Label(top, text=tr('  v{0}   HTML scene → MP4', rc.VERSION), foreground='#888').pack(side='left', pady=(6, 0))
         self.theme_btn = ttk.Button(top, width=9, command=self.toggle_theme); self.theme_btn.pack(side='right')
+        # 3.20 language: 'Auto' = Windows' language when Shadow has it; a change asks to restart
+        self.lang_names = [tr('Auto (Windows)')] + list(i18n.LANGS.values())
+        self.lang_var = tk.StringVar(value=self.lang_names[0] if self.lang_choice == 'auto' else i18n.LANGS.get(self.lang_choice, 'English'))
+        self.lang_box = ttk.Combobox(top, textvariable=self.lang_var, values=self.lang_names, state='readonly', width=16)
+        self.lang_box.pack(side='right', padx=(0, 8)); self.lang_box.bind('<<ComboboxSelected>>', lambda e: self.on_language())
         # 'Check for updates'; becomes the accent 'Update to vX.Y' once a newer release is found
-        self.update_btn = ttk.Button(top, text='Check for updates', command=self.on_update_btn); self.update_btn.pack(side='right', padx=(0, 8))
-        self.ai_btn = ttk.Button(top, text='Assistant', command=self.toggle_assistant); self.ai_btn.pack(side='right', padx=(0, 8))
-        self.proj_btn = ttk.Button(top, text='Project', command=self.project_menu); self.proj_btn.pack(side='right', padx=(0, 8))
+        self.update_btn = ttk.Button(top, text=tr('Check for updates'), command=self.on_update_btn); self.update_btn.pack(side='right', padx=(0, 8))
+        self.ai_btn = ttk.Button(top, text=tr('Assistant'), command=self.toggle_assistant); self.ai_btn.pack(side='right', padx=(0, 8))
+        self.proj_btn = ttk.Button(top, text=tr('Project'), command=self.project_menu); self.proj_btn.pack(side='right', padx=(0, 8))
+        self.new_btn = ttk.Button(top, text=tr('New video (AI)...'), style='Accent.TButton', command=self.open_new_video)
+        self.new_btn.pack(side='right', padx=(0, 8))
         self._top = top
         self._theme_text()
 
@@ -645,15 +680,15 @@ class App(Root):
         for k in ('Chrome', 'ffmpeg', 'playwright', 'Blender'):
             dot = ttk.Label(env, text='●'); dot.pack(side='left'); txt = ttk.Label(env, text=k); txt.pack(side='left', padx=(3, 14))
             self.env_lbls[k] = (dot, txt)
-        ttk.Button(env, text='Install missing', command=self.install_missing).pack(side='right')
-        self.selftest_btn = ttk.Button(env, text='Self-test', command=self.run_selftest); self.selftest_btn.pack(side='right')
-        ttk.Button(env, text='Re-check', command=self.check).pack(side='right', padx=6)
+        ttk.Button(env, text=tr('Install missing'), command=self.install_missing).pack(side='right')
+        self.selftest_btn = ttk.Button(env, text=tr('Self-test'), command=self.run_selftest); self.selftest_btn.pack(side='right')
+        ttk.Button(env, text=tr('Re-check'), command=self.check).pack(side='right', padx=6)
 
         # drop area + table
-        card = ttk.LabelFrame(self, text='Scenes', padding=10); card.pack(fill='both', expand=True, padx=P, pady=10)
+        card = ttk.LabelFrame(self, text=tr('Scenes'), padding=10); card.pack(fill='both', expand=True, padx=P, pady=10)
         dz = ttk.Frame(card, style='Card.TFrame', padding=14, cursor='hand2'); dz.pack(fill='x')
         self.drop = ttk.Label(dz, anchor='center', cursor='hand2', font='SunValleyBodyLargeFont',
-                              text=('⤓   Drop .html or .blend scenes here, or click to browse' if HAS_DND else 'Click to add .html or .blend scenes'))
+                              text=(tr('⤓   Drop .html or .blend scenes here, or click to browse') if HAS_DND else tr('Click to add .html or .blend scenes')))
         self.drop.pack(fill='x')
         for w in (dz, self.drop): w.bind('<Button-1>', lambda e: self.add())
         self.dz = dz
@@ -665,7 +700,7 @@ class App(Root):
         k = self.winfo_fpixels('1i') / 96
         for c, t, w, st in (('name', 'Name', 300, True), ('status', 'Status', 200, True), ('dur', 'Duration', 80, False),
                             ('audio', 'Audio', 170, True), ('fmt', 'Format', 70, False), ('time', 'Time', 90, False)):
-            self.tree.heading(c, text=t, anchor='w'); self.tree.column(c, width=round(w * k), minwidth=round(60 * k), stretch=st, anchor='w')
+            self.tree.heading(c, text=tr(t), anchor='w'); self.tree.column(c, width=round(w * k), minwidth=round(60 * k), stretch=st, anchor='w')
         sb = ttk.Scrollbar(tf, orient='vertical', command=self.tree.yview); self.tree.configure(yscrollcommand=sb.set)
         self.tree.pack(side='left', fill='both', expand=True); sb.pack(side='right', fill='y')
         self.tree.bind('<Double-1>', lambda e: self.preview()); self.tree.bind('<Delete>', lambda e: self.remove())
@@ -676,31 +711,32 @@ class App(Root):
         bt = ttk.Frame(card); bt.pack(fill='x')
         btns = {}
         for i, (t, c) in enumerate((('Add...', self.add), ('Add folder...', self.add_folder), ('Remove', self.remove), ('Clear', self.clear),
-                                    ('Preview', self.preview), ('Check frames', self.check_frames), ('Narration...', self.open_narration_dialog))):
-            b = btns[t] = ttk.Button(bt, text=t, command=c); b.grid(row=0, column=i, sticky='we', padx=(0 if i == 0 else 6, 0))
+                                    ('Preview', self.preview), ('Check frames', self.check_frames), ('Narration...', self.open_narration_dialog),
+                                    ('AI...', self.open_ai))):
+            b = btns[t] = ttk.Button(bt, text=tr(t), command=c); b.grid(row=0, column=i, sticky='we', padx=(0 if i == 0 else 6, 0))
             bt.columnconfigure(i, weight=1, uniform='b')
         self.check_btn = btns['Check frames']
         self.narr_btn = btns['Narration...']; self.narr_btn.config(state='disabled')   # enabled when one row is selected that can take narration
 
         # options
-        op = ttk.LabelFrame(self, text='Options', padding=10); op.pack(fill='x', padx=P)
+        op = ttk.LabelFrame(self, text=tr('Options'), padding=10); op.pack(fill='x', padx=P)
         rows = (('Quality', self.preset, list(rc.PRESETS)), ('Format', self.fmt, FORMAT_CHOICES), ('Sound', self.snd, SOUNDS),
                 ('Capture', self.capture, list(CAPTURES)), ('Blender', self.bl_engine, BLENDER_ENGINES))
         for r, (lbl, var, vals) in enumerate(rows):
-            ttk.Label(op, text=lbl).grid(row=r, column=0, sticky='w', pady=3)
-            ttk.Combobox(op, textvariable=var, values=vals, state='readonly', width=32).grid(row=r, column=1, sticky='w', padx=10, pady=3)
+            ttk.Label(op, text=tr(lbl)).grid(row=r, column=0, sticky='w', pady=3)
+            i18n.Combo(op, var, vals, width=32).grid(row=r, column=1, sticky='w', padx=10, pady=3)   # shows translations, keeps keys
         self.snd.trace_add('write', self.on_sound)
         self.fmt.trace_add('write', lambda *_: self.refresh_audio())   # the Format column follows the Format setting
         ttk.Label(op, textvariable=self.snd_file, foreground='#888').grid(row=2, column=2, columnspan=2, sticky='w')
-        ttk.Label(op, text='.blend scenes only (GPU: OptiX/CUDA when found)', foreground='#888').grid(row=4, column=2, columnspan=2, sticky='w')
-        ttk.Label(op, text='Save to').grid(row=5, column=0, sticky='w', pady=3)
+        ttk.Label(op, text=tr('.blend scenes only (GPU: OptiX/CUDA when found)'), foreground='#888').grid(row=4, column=2, columnspan=2, sticky='w')
+        ttk.Label(op, text=tr('Save to')).grid(row=5, column=0, sticky='w', pady=3)
         ttk.Entry(op, textvariable=self.out_dir).grid(row=5, column=1, columnspan=2, sticky='we', padx=10, pady=3)
-        ttk.Button(op, text='Browse...', command=self.pick_out).grid(row=5, column=3, sticky='e')
-        ttk.Label(op, text='Folder').grid(row=6, column=0, sticky='w', pady=3)
-        self.folder_box = ttk.Combobox(op, textvariable=self.folder_choice, values=self.folder_values(), state='readonly', width=32)
+        ttk.Button(op, text=tr('Browse...'), command=self.pick_out).grid(row=5, column=3, sticky='e')
+        ttk.Label(op, text=tr('Folder')).grid(row=6, column=0, sticky='w', pady=3)
+        self.folder_box = i18n.Combo(op, self.folder_choice, self.folder_values(), width=32)
         self.folder_box.grid(row=6, column=1, sticky='w', padx=10, pady=3)
-        ttk.Label(op, text='Auto: songs -> Music, the rest -> Video (Short + video share one folder)', foreground='#888').grid(row=6, column=2, sticky='w')
-        ttk.Button(op, text='New folder...', command=self.add_main_folder).grid(row=6, column=3, sticky='e')
+        ttk.Label(op, text=tr('Auto: songs -> Music, the rest -> Video (Short + video share one folder)'), foreground='#888').grid(row=6, column=2, sticky='w')
+        ttk.Button(op, text=tr('New folder...'), command=self.add_main_folder).grid(row=6, column=3, sticky='e')
         op.columnconfigure(2, weight=1)
 
         # progress
@@ -709,20 +745,20 @@ class App(Root):
         self.pct = ttk.Label(pr, text='0%', width=16, anchor='e'); self.pct.pack(side='right', padx=(10, 0))
         sl = ttk.Frame(self); sl.pack(fill='x', padx=P, pady=(4, 0))
         self.eta_lbl = ttk.Label(sl, text='', foreground='#888'); self.eta_lbl.pack(side='right')   # whole queue: about 12 min · done ~15:40
-        self.status = ttk.Label(sl, text='Ready', foreground='#888'); self.status.pack(side='left')
+        self.status = ttk.Label(sl, text=tr('Ready'), foreground='#888'); self.status.pack(side='left')
 
         # actions
         act = ttk.Frame(self); act.pack(fill='x', padx=P, pady=P)
-        self.go = ttk.Button(act, text='Render', style='Accent.TButton', command=self.start)
-        self.stop_cur = ttk.Button(act, text='Cancel current', command=self.do_cancel_current, state='disabled')
-        self.stop = ttk.Button(act, text='Stop queue', command=self.do_cancel, state='disabled')
-        self.yt_btn = ttk.Button(act, text='YouTube...', command=self.open_youtube_dialog)
-        for i, w in enumerate((self.go, self.stop_cur, self.stop, ttk.Button(act, text='Open folder', command=self.open_out), ttk.Button(act, text='Open log', command=self.open_log), self.yt_btn)):
+        self.go = ttk.Button(act, text=tr('Render'), style='Accent.TButton', command=self.start)
+        self.stop_cur = ttk.Button(act, text=tr('Cancel current'), command=self.do_cancel_current, state='disabled')
+        self.stop = ttk.Button(act, text=tr('Stop queue'), command=self.do_cancel, state='disabled')
+        self.yt_btn = ttk.Button(act, text=tr('YouTube...'), command=self.open_youtube_dialog)
+        for i, w in enumerate((self.go, self.stop_cur, self.stop, ttk.Button(act, text=tr('Open folder'), command=self.open_out), ttk.Button(act, text=tr('Open log'), command=self.open_log), self.yt_btn)):
             w.grid(row=0, column=i, sticky='we', padx=(0 if i == 0 else 6, 0)); act.columnconfigure(i, weight=1, uniform='a')
         chk = ttk.Frame(act); chk.grid(row=1, column=0, columnspan=6, sticky='w', pady=(8, 0))
         for t, v in (('Open folder when done', self.open_when_done), ('Skip scenes already rendered (up to date)', self.skip_done),
                      ('Notify me when the queue ends', self.notify)):
-            ttk.Checkbutton(chk, text=t, variable=v).pack(side='left', padx=(0, 18))
+            ttk.Checkbutton(chk, text=tr(t), variable=v).pack(side='left', padx=(0, 18))
         self.skip_done.trace_add('write', lambda *_: self.update_eta())
         for var in (self.preset, self.capture):
             var.trace_add('write', lambda *_: self.update_eta())
@@ -739,6 +775,7 @@ class App(Root):
                 # or the light gray stays between the frames after switching back to Dark
                 self.configure(background=LIGHT_BG if self.theme == 'light' else (str(ttk.Style(self).lookup('TFrame', 'background')) or '#1c1c1c'))
                 self._scale_theme()
+                i18n.apply_fonts(self)   # 3.20: a Windows font that has the language's letters (Arabic, Hindi, Chinese, Japanese)
             except Exception: log.exception('theme')
         dark_titlebar(self, self.theme == 'dark')
     def _light_gray(self):
@@ -782,7 +819,7 @@ class App(Root):
             self._fonts_scaled = True
         ttk.Style(self).configure('Treeview', rowheight=round(26 * k))
     def _theme_text(self):
-        self.theme_btn.config(text='Light' if self.theme == 'dark' else 'Dark')
+        self.theme_btn.config(text=tr('Light') if self.theme == 'dark' else tr('Dark'))
     def toggle_theme(self):
         self.theme = self.theme_choice = 'light' if self.theme == 'dark' else 'dark'
         self.apply_theme(); self._theme_text(); self.ai_colors(); self.save()
@@ -793,12 +830,12 @@ class App(Root):
         for k, ok in (('Chrome', e['chrome']), ('ffmpeg', e['ffmpeg']), ('playwright', e['playwright']), ('Blender', bool(self.blender))):
             dot, txt = self.env_lbls[k]
             dot.config(foreground='#3fb950' if ok else '#f85149' if k != 'Blender' else '#888'); txt.config(text=k if ok else f'{k} (missing)' if k != 'Blender' else 'Blender (not found, only for .blend)')
-        if e['chrome'] and e.get('browser') != 'Chrome': self.env_lbls['Chrome'][1].config(text=f"{e['browser']} (Chrome not found)")
+        if e['chrome'] and e.get('browser') != 'Chrome': self.env_lbls['Chrome'][1].config(text=tr('{0} (Chrome not found)', e['browser']))
     def run_selftest(self, wait=False, **kw):
         """Self-test button: selftest() in a thread, the result in a message box (tests: wait=True runs here, returns it)."""
         if self.worker is not None and self.worker.is_alive():
-            messagebox.showinfo('Self-test', 'A render is running. Run the self-test when the queue is done.'); return None
-        self.selftest_btn.config(state='disabled'); self.status.config(text='Self-test: rendering a 2-second test scene...')
+            messagebox.showinfo(tr('Self-test'), tr('A render is running. Run the self-test when the queue is done.')); return None
+        self.selftest_btn.config(state='disabled'); self.status.config(text=tr('Self-test: rendering a 2-second test scene...'))
         out = {}
         def work():
             out['res'] = selftest(**kw)
@@ -819,9 +856,9 @@ class App(Root):
         if not self.env['chrome']: cmds.append('winget install -e --id Google.Chrome')
         if not getattr(self, 'blender', None) and any(bc.is_blend(f) for f in self.files): cmds.append('winget install -e --id BlenderFoundation.Blender')
         if not cmds:
-            messagebox.showinfo('Setup', 'Everything is installed.'); return
+            messagebox.showinfo(tr('Setup'), tr('Everything is installed.')); return
         subprocess.Popen('cmd /c "' + ' && '.join(cmds) + ' && echo. && echo Done. Close this window and restart the app. && pause"', creationflags=getattr(subprocess, 'CREATE_NEW_CONSOLE', 0))
-        messagebox.showinfo('Setup', 'Installing in a new window. When it finishes, close this app and open it again (ffmpeg needs a restart to be found).')
+        messagebox.showinfo(tr('Setup'), tr('Installing in a new window. When it finishes, close this app and open it again (ffmpeg needs a restart to be found).'))
 
     # ------------------------------------------------------------------ file list
     def on_drop(self, ev):
@@ -833,9 +870,9 @@ class App(Root):
     # ------------------------------------------------------------------ project files (.shadow)
     def project_menu(self):
         m = tk.Menu(self, tearoff=0)
-        m.add_command(label='Open project...', command=self.open_project)
-        m.add_command(label='Save project', command=lambda: self.save_project(self.project_path))
-        m.add_command(label='Save project as...', command=self.save_project)
+        m.add_command(label=tr('Open project...'), command=self.open_project)
+        m.add_command(label=tr('Save project'), command=lambda: self.save_project(self.project_path))
+        m.add_command(label=tr('Save project as...'), command=self.save_project)
         try: m.tk_popup(self.proj_btn.winfo_rootx(), self.proj_btn.winfo_rooty() + self.proj_btn.winfo_height())
         finally: m.grab_release()
     def project_data(self):
@@ -851,20 +888,20 @@ class App(Root):
                                                 initialdir=os.path.dirname(self.files[0]) if self.files else None, initialfile='project' + PROJECT_EXT)
             if not path: return None
         try: write_project(path, self.project_data())
-        except OSError as e: messagebox.showerror('Project', f'Could not save {path}:\n{e}'); return None
-        self.project_path = path; self.title(f'Shadow - {os.path.splitext(os.path.basename(path))[0]}')
-        self.status.config(text=f'Project saved: {path}'); log.info('project saved %s (%d scenes)', path, len(self.files))
+        except OSError as e: messagebox.showerror(tr('Project'), tr('Could not save {0}:\n{1}', path, e)); return None
+        self.project_path = path; self.title(tr('Shadow - {0}', os.path.splitext(os.path.basename(path))[0]))
+        self.status.config(text=tr('Project saved: {0}', path)); log.info('project saved %s (%d scenes)', path, len(self.files))
         return path
     def open_project(self, path=None, ask=messagebox.askyesnocancel):
         """Open project: scenes (in order) + their narration + the options. With scenes already in the list it asks:
         Yes = replace the list, No = add to it, Cancel. Missing files are listed, the rest is opened. Returns the scenes added."""
         if self.worker is not None and self.worker.is_alive():
-            messagebox.showinfo('Project', 'A render is running. Open the project when the queue is done.'); return []
+            messagebox.showinfo(tr('Project'), tr('A render is running. Open the project when the queue is done.')); return []
         if not path:
             path = filedialog.askopenfilename(filetypes=[('Shadow project', '*' + PROJECT_EXT)])
             if not path: return []
         try: data = read_project(path)
-        except (OSError, ValueError) as e: messagebox.showerror('Project', f'Could not open {path}:\n{e}'); return []
+        except (OSError, ValueError) as e: messagebox.showerror(tr('Project'), tr('Could not open {0}:\n{1}', path, e)); return []
         if self.files:
             a = ask('Project', f'Replace the {len(self.files)} scene(s) in the list with the project?\n\nYes = replace   No = add to the list   Cancel = do nothing')
             if a is None: return []
@@ -883,7 +920,7 @@ class App(Root):
         if o.get('save_to'): self.out_dir.set(o['save_to'])
         if 'skip_done' in o: self.skip_done.set(bool(o['skip_done']))
         fc = o.get('folder')
-        if fc and fc not in self.folder_values() and safe_rel_folder(fc): self.folders.append(safe_rel_folder(fc)); self.folder_box.config(values=self.folder_values())
+        if fc and fc not in self.folder_values() and safe_rel_folder(fc): self.folders.append(safe_rel_folder(fc)); self.folder_box.set_values(self.folder_values())
         if fc in self.folder_values(): self.folder_choice.set(fc)
         added, missing, narr_err = [], [f for f in data['files'] if not os.path.isfile(f)], []
         for f in data['files']:
@@ -894,11 +931,11 @@ class App(Root):
                 err = self.set_narration(f, n.get('wav', ''), n.get('words', ''), style=n.get('style', 'pop'), yh=n.get('yh', 0.88),
                                          gain=n.get('gain', 1.0), captions=n.get('captions', True))
                 if err: narr_err.append(f'{os.path.basename(f)}: {err}')
-        self.refresh_audio(); self.project_path = path; self.title(f'Shadow - {os.path.splitext(os.path.basename(path))[0]}')
+        self.refresh_audio(); self.project_path = path; self.title(tr('Shadow - {0}', os.path.splitext(os.path.basename(path))[0]))
         self.status.config(text=f'Project opened: {len(added)} scene(s)' + (f', {len(missing)} missing' if missing else ''))
         log.info('project opened %s: %d added, %d missing', path, len(added), len(missing))
         if missing or narr_err:
-            messagebox.showwarning('Project', ('Not found (not added):\n' + '\n'.join(missing) if missing else '')
+            messagebox.showwarning(tr('Project'), ('Not found (not added):\n' + '\n'.join(missing) if missing else '')
                                    + ('\n\n' if missing and narr_err else '') + ('Narration not attached:\n' + '\n'.join(narr_err) if narr_err else ''))
         return added
     def add_folder(self, d=None, ask=None):
@@ -920,14 +957,15 @@ class App(Root):
         self.status.config(text=f'{len(added)} scene(s) added from {d}' if added else f'No new .html or .blend scenes in {d}')
         return added
     def add(self):
-        for f in filedialog.askopenfilenames(filetypes=[('Scene', '*.html *.htm *.blend'), ('HTML scene', '*.html *.htm'), ('Blender scene', '*.blend')]): self._add(f)
+        for f in filedialog.askopenfilenames(filetypes=[('Scene or video', '*.html *.htm *.blend *.mp4 *.mov *.m4v *.webm *.mkv'), ('HTML scene', '*.html *.htm'),
+                                                        ('Blender scene', '*.blend'), ('Video + song next to it', '*.mp4 *.mov *.m4v *.webm *.mkv')]): self._add(f)
     def _add(self, f):
         f = os.path.normpath(f)
-        if f.lower().endswith(SCENE_EXTS) and f not in self.files:
+        if (f.lower().endswith(SCENE_EXTS) or vsong.is_video(f)) and f not in self.files:
             with self.lock:   # while a batch runs, a new file joins it and renders after the ones before it
                 self.files.append(f); self.state[f] = 'queued'
             try:   # narration already built into the scene (the tool's own check): marked, never narrated twice
-                if bc.is_blend(f): raise StopIteration   # binary .blend: no HTML narration
+                if bc.is_blend(f) or vsong.is_video(f): raise StopIteration   # binary files: no HTML narration
                 with open(f, encoding='utf-8', errors='replace') as fh:
                     if narrate_module().is_narrated(fh.read()): self.embedded.add(f)
             except Exception: pass
@@ -972,13 +1010,17 @@ class App(Root):
     def _audio(self, f):
         """resolve_audio for one queued file with the current Sound setting (what the Audio column shows)."""
         mode = sound_mode(self.snd.get())
+        if vsong.is_video(f):   # video + song: External file, else <video>.mp3 next to it
+            if mode != 'file': mode = 'auto'
+            r = resolve_audio(f, mode, self.snd_file.get() or None)
+            return r if r['sound'] == 'file' else dict(r, label=tr('no song next to it'), warn=f'{os.path.basename(f)}: put {os.path.splitext(os.path.basename(f))[0]}.mp3 next to it')
         narrated = f in self.narr or (f in self.embedded and mode in ('auto', 'generated'))
         return resolve_audio(f, mode, self.snd_file.get() or None, narrated=narrated)
     def _refresh_name(self, f):
         iid = self.rows.get(f)
         if iid and self.tree.exists(iid):
             v = list(self.tree.item(iid, 'values')); v += [''] * (6 - len(v))
-            v[0] = self._row_name(f); v[3] = self._audio(f)['label']; v[4] = format_label(format_vertical(f, self.fmt.get()))
+            v[0] = self._row_name(f); v[3] = tr(self._audio(f)['label']); v[4] = format_label(format_vertical(f, self.fmt.get()))
             self.tree.item(iid, values=v)
     def refresh_audio(self):
         """Update every row's Audio and Format columns; in Auto sound mode the status line names the scenes without an audio file."""
@@ -1016,7 +1058,7 @@ class App(Root):
         iid = self.rows.get(f)
         if not iid or not self.tree.exists(iid): return
         v = list(self.tree.item(iid, 'values'))
-        if status is not None: v[1] = status
+        if status is not None: v[1] = i18n.status(status)   # shown translated; the code keeps the English text
         if dur is not None: v[2] = dur
         self.tree.item(iid, values=v)
     def _drop(self, paths):
@@ -1027,7 +1069,7 @@ class App(Root):
                 if self.state.get(f) == 'running': kept = True; continue
                 self.files.remove(f); self.state.pop(f, None); self.narr.pop(f, None); self.embedded.discard(f); self.tree.delete(self.rows.pop(f))
         self.update_eta()
-        if kept: self.status.config(text="The file that is rendering can't be removed. Press Cancel to stop it.")
+        if kept: self.status.config(text=tr("The file that is rendering can't be removed. Press Cancel to stop it."))
         return kept
     def remove(self):
         self._drop([k for iid in self.tree.selection() for k, v in self.rows.items() if v == iid])
@@ -1059,7 +1101,7 @@ class App(Root):
     def open_youtube_dialog(self):
         try: return YouTubeDialog(self, self.youtube_items())
         except Exception as e:
-            log.exception('youtube dialog'); messagebox.showerror('YouTube', str(e)); return None
+            log.exception('youtube dialog'); messagebox.showerror(tr('YouTube'), str(e)); return None
     def folder_values(self):
         """The Folder combobox: Auto, the main folders (Music, Video, the ones added), None."""
         return [FOLDER_AUTO, *self.folders, FOLDER_NONE]
@@ -1069,7 +1111,7 @@ class App(Root):
         name = safe_rel_folder(name if name is not None else simpledialog.askstring('New folder', 'Folder name (inside Save to), e.g. Kids:', parent=self) or '')
         if not name: return
         if name.lower() not in (x.lower() for x in self.folders): self.folders.append(name)
-        self.folder_box.config(values=self.folder_values()); self.folder_choice.set(next(x for x in self.folders if x.lower() == name.lower()))
+        self.folder_box.set_values(self.folder_values()); self.folder_choice.set(next(x for x in self.folders if x.lower() == name.lower()))
         self.save()
     def open_out(self):
         d = self.out_dir.get(); os.makedirs(d, exist_ok=True); open_path(d)
@@ -1080,7 +1122,8 @@ class App(Root):
         save_cfg({'out': self.out_dir.get(), 'preset': self.preset.get(), 'open': self.open_when_done.get(), 'format': self.fmt.get(),
                   'skip_done': self.skip_done.get(), 'notify': self.notify.get(),
                   'folder': self.folder_choice.get(), 'folders': self.folders,
-                  'assistant_open': self.ai_open, 'assistant_dir': self.ai_dir_choice,
+                  'assistant_open': self.ai_open, 'assistant_dir': self.ai_dir_choice, 'ai': getattr(self, 'cfg_ai', {}),
+                  'language': getattr(self, 'lang_choice', 'auto'),
                   'capture': self.capture.get(), 'blender_engine': self.bl_engine.get(), 'sound': self.snd.get(), 'sound_file': self.snd_file.get(), **({'theme': self.theme_choice} if self.theme_choice else {})})
     def on_close(self):
         self.do_cancel(); self.save()
@@ -1091,16 +1134,16 @@ class App(Root):
 
     # ------------------------------------------------------------------ render
     def start(self, ask=messagebox.askyesnocancel):
-        if not self.files: messagebox.showwarning('Render', 'Add at least one .html or .blend scene.'); return
+        if not self.files: messagebox.showwarning(tr('Render'), tr('Add at least one .html or .blend scene.')); return
         self.check()
-        need = {'ffmpeg'} | ({'chrome', 'playwright'} if any(not bc.is_blend(f) for f in self.files) else set())   # a .blend-only queue needs no Chrome
+        need = {'ffmpeg'} | ({'chrome', 'playwright'} if any(not bc.is_blend(f) and not vsong.is_video(f) for f in self.files) else set())   # a .blend-only queue needs no Chrome
         miss = [k for k, v in self.env.items() if not v and k in need]
         if any(bc.is_blend(f) for f in self.files) and not self.blender: miss.append('Blender (for the .blend scenes)')
-        if miss: messagebox.showwarning('Setup', 'Missing: ' + ', '.join(miss) + '. Use "Install missing".'); return
+        if miss: messagebox.showwarning(tr('Setup'), 'Missing: ' + ', '.join(miss) + '. Use "Install missing".'); return
         try: os.makedirs(self.out_dir.get(), exist_ok=True)
-        except OSError as e: messagebox.showerror('Save to', str(e)); return
+        except OSError as e: messagebox.showerror(tr('Save to'), str(e)); return
         mode = sound_mode(self.snd.get())
-        if mode == 'file' and not os.path.exists(self.snd_file.get()): messagebox.showwarning('Sound', 'Pick an audio file.'); return
+        if mode == 'file' and not os.path.exists(self.snd_file.get()): messagebox.showwarning(tr('Sound'), tr('Pick an audio file.')); return
         fmt_name = self.fmt.get(); vertical = format_vertical('', fmt_name)   # Auto: decided per file in the worker
         jobs = [(f, scene_info(f)) for f in self.files]
         if any(format_vertical(f, fmt_name) for f, _ in jobs):   # only the files that render 9:16 must read get('h')
@@ -1113,7 +1156,7 @@ class App(Root):
                     for f in old: self.set_row(f, 'Skipped (outdated, no 9:16)')
                     jobs = [j for j in jobs if j[0] not in old]
                     if not jobs: return
-        broken = {f: p for f, p in ((f, rc.contract_problems(f)) for f, _ in jobs if not bc.is_blend(f)) if p}
+        broken = {f: p for f, p in ((f, rc.contract_problems(f)) for f, _ in jobs if not bc.is_blend(f) and not vsong.is_video(f)) if p}
         if broken:   # explained before the render instead of an error (or a 3-minute wait) in the middle of the queue
             a = ask('Scene check', 'These scenes miss something Shadow needs and will probably fail:\n\n' +
                     '\n\n'.join(f'{os.path.basename(f)}:\n' + '\n'.join(f'  • {x}' for x in p) for f, p in broken.items()) +
@@ -1142,11 +1185,11 @@ class App(Root):
     def do_cancel(self):
         """Stop queue: stop the running file and cancel every file still Queued."""
         with self.lock: self.cancel.set(); self.item_cancel.set()
-        if self.status.winfo_exists(): self.status.config(text='Stopping the queue...')
+        if self.status.winfo_exists(): self.status.config(text=tr('Stopping the queue...'))
     def do_cancel_current(self):
         """Cancel current: stop only the running file; the queue goes on with the next Queued one."""
         with self.lock: self.item_cancel.set()
-        self.status.config(text='Cancelling the current file...')
+        self.status.config(text=tr('Cancelling the current file...'))
 
     def next_queued(self):
         """Mark the first 'queued' file as 'running' and return (file, how many are still queued after it, its own cancel
@@ -1189,6 +1232,8 @@ class App(Root):
         if r['status'] == 'done': done.append(r['mp4'])
         elif r['status'] == 'error': failed.append(r['error'])
         elif r['status'] == 'skipped' and skipped is not None: skipped.append(r['mp4'])
+        rp = getattr(self, 'row_problems', None)
+        if rp is not None: rp[f] = render_problems(r)
         store = getattr(self, 'out_mp4', None)   # the YouTube dialog's list (tests call _run_one on stand-ins without it)
         if store is not None and r['status'] in ('done', 'skipped') and r.get('mp4'):
             lst = store.setdefault(f, [])
@@ -1225,7 +1270,7 @@ class App(Root):
                 else: unknown += 1
             if busy and self._cur_left: total += self._cur_left[1]
             txt = eta_text(total, unknown=unknown) if (todo or busy) else ''
-            self.eta_lbl.config(text=(('Queue: ' if busy else 'Estimate: ') + txt) if txt else '')
+            self.eta_lbl.config(text=((tr('Queue: ') if busy else tr('Estimate: ')) + i18n.phrase(txt)) if txt else '')
         except Exception:
             log.exception('update_eta')
     def _set_time(self, f, text):
@@ -1288,7 +1333,7 @@ class App(Root):
                     self.status.config(text=f'Downloading update: {got / 1e6:.1f}' + (f' of {total / 1e6:.1f} MB' if total else ' MB'))
                     if total: self.bar['value'] = 100 * got / total
                 elif m[0] == 'update_ready':
-                    self.status.config(text='Starting the installer...'); self.run_installer(m[1]); return   # the window is gone
+                    self.status.config(text=tr('Starting the installer...')); self.run_installer(m[1]); return   # the window is gone
                 elif m[0] == 'update_fail':
                     self.update_failed(m[1])
                 elif m[0] == 'end':
@@ -1305,9 +1350,9 @@ class App(Root):
                     self.status.config(text=txt); self.bar['value'] = 100 if done and not failed and not cancelled else self.bar['value']
                     if not cancelled and not failed: self.pct.config(text='100%')
                     if failed:
-                        messagebox.showerror('Render failed', '\n\n'.join(failed) + f'\n\nDetails in {LOG}')
+                        messagebox.showerror(tr('Render failed'), '\n\n'.join(failed) + f'\n\nDetails in {LOG}')
                     if warns:
-                        messagebox.showwarning('Check the output', '\n\n'.join(warns))
+                        messagebox.showwarning(tr('Check the output'), '\n\n'.join(warns))
                     if done and not cancelled:
                         try:
                             import winsound; winsound.MessageBeep()
@@ -1323,11 +1368,11 @@ class App(Root):
         """Collapsible chat on the right: Claude (through the installed Claude Code CLI, the owner's subscription) with Shadow's
         MCP tools. Hidden until the top-bar 'Assistant' button; the chat runs in assistant.Chat's threads (UI never waits)."""
         k = self.winfo_fpixels('1i') / 96
-        p = self.ai_frame = ttk.LabelFrame(self, text='Assistant (Claude Code)', padding=8)
+        p = self.ai_frame = ttk.LabelFrame(self, text=tr('Assistant (Claude Code)'), padding=8)
         hd = ttk.Frame(p); hd.pack(fill='x')
         self.ai_dir_lbl = ttk.Label(hd, text='', foreground='#888'); self.ai_dir_lbl.pack(side='left', fill='x', expand=True)
-        ttk.Button(hd, text='New chat', command=self.ai_new).pack(side='right')
-        ttk.Button(hd, text='Folder...', command=self.ai_pick_dir).pack(side='right', padx=(0, 6))
+        ttk.Button(hd, text=tr('New chat'), command=self.ai_new).pack(side='right')
+        ttk.Button(hd, text=tr('Folder...'), command=self.ai_pick_dir).pack(side='right', padx=(0, 6))
         tf = ttk.Frame(p); tf.pack(fill='both', expand=True, pady=(6, 6))
         self.ai_text = tk.Text(tf, wrap='word', width=48, height=18, state='disabled', relief='flat', padx=8, pady=6,
                                font='SunValleyBodyFont', cursor='arrow')
@@ -1335,16 +1380,16 @@ class App(Root):
         self.ai_text.pack(side='left', fill='both', expand=True); sb.pack(side='right', fill='y')
         self.ai_allow_bar = ttk.Frame(p)   # shown when Claude was blocked from a tool that may be allowed once
         self.ai_allow_lbl = ttk.Label(self.ai_allow_bar, text='', wraplength=round(330 * k)); self.ai_allow_lbl.pack(side='left', fill='x', expand=True)
-        ttk.Button(self.ai_allow_bar, text='No', command=self.ai_deny).pack(side='right')
-        ttk.Button(self.ai_allow_bar, text='Allow once', style='Accent.TButton', command=self.ai_allow).pack(side='right', padx=(0, 6))
+        ttk.Button(self.ai_allow_bar, text=tr('No'), command=self.ai_deny).pack(side='right')
+        ttk.Button(self.ai_allow_bar, text=tr('Allow once'), style='Accent.TButton', command=self.ai_allow).pack(side='right', padx=(0, 6))
         self.ai_in = tk.Text(p, wrap='word', height=3, width=48, relief='flat', padx=8, pady=6, font='SunValleyBodyFont', undo=True)
         self.ai_in.pack(fill='x')
         self.ai_in.bind('<Return>', self.ai_on_return)   # Enter sends, Shift+Enter = new line
         bt = ttk.Frame(p); bt.pack(fill='x', pady=(6, 0))
-        self.ai_send_btn = ttk.Button(bt, text='Send', style='Accent.TButton', command=self.ai_send)
-        self.ai_stop_btn = ttk.Button(bt, text='Stop', command=self.ai_stop, state='disabled')
+        self.ai_send_btn = ttk.Button(bt, text=tr('Send'), style='Accent.TButton', command=self.ai_send)
+        self.ai_stop_btn = ttk.Button(bt, text=tr('Stop'), command=self.ai_stop, state='disabled')
         self.ai_send_btn.pack(side='left', fill='x', expand=True); self.ai_stop_btn.pack(side='left', fill='x', expand=True, padx=(6, 0))
-        self.ai_status = ttk.Label(p, text='Ask for a render, a frame check or a QC summary. Uses your Claude subscription via Claude Code.',
+        self.ai_status = ttk.Label(p, text=tr('Ask for a render, a frame check or a QC summary. Uses your Claude subscription via Claude Code.'),
                                    foreground='#888', wraplength=round(380 * k)); self.ai_status.pack(fill='x', pady=(6, 0))
         self.ai_colors(); self._ai_dir_label()
         if self.ai_open: self.ai_open = False; self.after_idle(self.toggle_assistant)
@@ -1387,10 +1432,10 @@ class App(Root):
     def _ai_dir_label(self):
         d = self.ai.cwd if self.ai else self.ai_folder()
         how = 'chosen' if self.ai_dir_choice else ('this chat' if self.ai else 'auto: scenes\' folder')
-        self.ai_dir_lbl.config(text=f'Folder ({how}): {d if len(d) < 48 else "..." + d[-45:]}')
+        self.ai_dir_lbl.config(text=tr('Folder ({0}): {1}', how, d if len(d) < 48 else '...' + d[-45:]))
 
     def ai_pick_dir(self):
-        d = filedialog.askdirectory(title='Assistant folder (Claude may read files here)', initialdir=self.ai_folder())
+        d = filedialog.askdirectory(title=tr('Assistant folder (Claude may read files here)'), initialdir=self.ai_folder())
         if not d: return
         self.ai_dir_choice = os.path.normpath(d); self.save()
         if self.ai and os.path.normcase(self.ai.cwd) != os.path.normcase(self.ai_dir_choice):
@@ -1482,17 +1527,60 @@ class App(Root):
             self.ai_append(f'  blocked: {summary}', 'err')
             if allowable:
                 self.ai_pending = tool
-                self.ai_allow_lbl.config(text=f'Claude wants to use {summary}. Allow it once?')
+                self.ai_allow_lbl.config(text=tr('Claude wants to use {0}. Allow it once?', summary))
                 self.ai_allow_bar.pack(fill='x', pady=(0, 6), before=self.ai_in)
         elif kind == 'turn_end':
             took = f' · {time.time() - self.ai_t0:.0f} s' if self.ai_t0 else ''
             self._ai_idle(('Done' if not d[0].get('is_error') else 'Finished with an error') + took)
-            if self.ai_pending: self.ai_status.config(text='Waiting for you: Allow once or No')
+            if self.ai_pending: self.ai_status.config(text=tr('Waiting for you: Allow once or No'))
         elif kind == 'error':
             self.ai_append(d[0], 'err'); self._ai_idle('Error - see the message above.')
             if self.ai and not self.ai.ready_ok: self.ai = None   # not installed / not signed in: check again on the next Send
         elif kind == 'exit':
             if not (self.ai and self.ai.busy): self.ai_stop_btn.config(state='disabled'); self.ai_send_btn.config(state='normal')
+
+    # ------------------------------------------------------------------ AI... (3.19, ai_tasks.py via dialogs.AIWindow)
+    def open_ai(self, paths=None, problems=None):
+        """The AI... button: one selected row -> the AI window (Fix the scene / Write YouTube text), started from the
+        problems Shadow saw for that row (render error, QC, Check frames). Returns the window or None."""
+        if paths is None:
+            sel = set(self.tree.selection()); paths = [f for f in self.files if self.rows.get(f) in sel]
+        if len(paths) != 1:
+            self.status.config(text=tr('Select one scene, then press AI...')); return None
+        f = paths[0]
+        mp4s = [m for m in self.out_mp4.get(f, []) if os.path.isfile(m)]
+        probs = list(problems if problems is not None else self.row_problems.get(f, []))
+        if not probs and f.lower().endswith(('.html', '.htm')): probs = list(rc.contract_problems(f) or [])
+        try: return AIWindow(self, f, probs, mp4=mp4s[-1] if mp4s else None)
+        except Exception: log.exception('AI window'); return None
+    def on_language(self, ask=None, restart=None):
+        """The language list changed: save it and offer to restart Shadow (the window is built once, in one language)."""
+        name = self.lang_var.get()
+        code = 'auto' if name == self.lang_names[0] else next((c for c, n in i18n.LANGS.items() if n == name), 'en')
+        if code == self.lang_choice: return False
+        self.lang_choice = code; self.save()
+        new = i18n.pick(code)
+        if new == self.lang: return True
+        if (ask or messagebox.askyesno)(tr('Language'), tr('Shadow will use {0} after a restart. Restart now?', i18n.name(new))):
+            if self.worker and self.worker.is_alive():
+                messagebox.showinfo(tr('Language'), tr('A render is running: the new language is used the next time Shadow starts.')); return True
+            (restart or self.restart)()
+        return True
+    def restart(self):
+        args = [sys.executable] if getattr(sys, 'frozen', False) else [sys.executable, os.path.abspath(__file__)]
+        try: subprocess.Popen(args, close_fds=True)
+        except Exception: log.exception('restart'); return
+        self.on_close()
+    def open_new_video(self):
+        """Top bar 'New video (AI)...': idea -> narration, voice, scene (ai_tasks.new_video) -> into the queue."""
+        try: return NewVideoDialog(self)
+        except Exception: log.exception('new video window'); return None
+    def ai_applied(self, f):
+        """The AI window replaced the scene file: forget what was wrong and show it needs a new render."""
+        self.row_problems.pop(f, None); self._dur_cache.pop(f, None)
+        with self.lock:
+            if self.state.get(f) != 'running': self.state[f] = 'queued'
+        self.set_row(f, 'Fixed by AI - render again')
 
     # ------------------------------------------------------------------ Check frames (frame_check.check, in a thread)
     def check_frames(self, paths=None, ask=None):
@@ -1503,9 +1591,9 @@ class App(Root):
         if paths is None:
             sel = set(self.tree.selection()); paths = [f for f in self.files if self.rows.get(f) in sel]
         if not paths:
-            self.status.config(text='Select one or more scenes, then press Check frames.'); return None
+            self.status.config(text=tr('Select one or more scenes, then press Check frames.')); return None
         if self.check_thread and self.check_thread.is_alive():
-            self.status.config(text='A frame check is already running.'); return None
+            self.status.config(text=tr('A frame check is already running.')); return None
         if self.worker and self.worker.is_alive():
             if not (ask or messagebox.askyesno)('Check frames', 'A render is running. Checking frames now starts a second Chrome '
                                                 '(or Blender) and slows the render down.\n\nCheck anyway?'):
@@ -1519,7 +1607,7 @@ class App(Root):
         def run():
             for i, (f, only) in enumerate(jobs, 1):
                 self.q.put(('check_status', f'Checking frames {i}/{len(jobs)}: {os.path.basename(f)}...'))
-                try: res = frame_check.check(f, only=only, engine=engine, **({} if bc.is_blend(f) else kw))
+                try: res = video_check(f, self._audio(f).get('audio_file')) if vsong.is_video(f) else frame_check.check(f, only=only, engine=engine, **({} if bc.is_blend(f) else kw))
                 except Exception as e:
                     log.exception('check frames'); res = dict(ok=False, sheet=None, problems=[f'{type(e).__name__}: {e}'], notes=[])
                 log.info('check frames %s: %s', f, 'OK' if res['ok'] else '; '.join(res['problems']))
@@ -1530,11 +1618,25 @@ class App(Root):
         return self.check_thread
     def show_check(self, f, res):
         self.check_results.append((f, res))
+        if not res.get('ok'): self.row_problems[f] = list(res.get('problems') or [])
         name = os.path.basename(f)
         self.status.config(text=f'{name}: frames OK' if res['ok'] else f'{name}: {len(res["problems"])} problem(s) - see the check window')
         if getattr(self, 'check_window_off', False): return None   # tests
         try: return CheckWindow(self, f, res)
         except Exception: log.exception('check window'); return None
+
+
+def render_problems(r):
+    """What a render_scene() result says went wrong, as lines for the AI window ([] when it went fine)."""
+    out = []
+    if r.get('status') == 'error':
+        out.append(f'The render failed: {r.get("error") or "unknown error"}')
+        if r.get('log'): out.append(f'Render log (read it): {r["log"]}')
+    q = r.get('qc') or {}
+    if q and q.get('status') not in (None, 'OK'):
+        out += [f'Quality check {q.get("status")}: {x}' for x in q.get('reasons') or []]
+        if r.get('qc_report'): out.append(f'QC report: {r["qc_report"]}')
+    return out
 
 
 def cli_check(argv):
@@ -1687,7 +1789,7 @@ def main():
         log.critical('crash\n%s', traceback.format_exc()); raise
 
 
-from dialogs import CheckWindow, NarrationDialog, YouTubeDialog   # noqa: E402,F401  (3.16: dialogs.py)
+from dialogs import AIWindow, CheckWindow, NarrationDialog, NewVideoDialog, YouTubeDialog   # noqa: E402,F401  (3.16: dialogs.py; AIWindow 3.19)
 
 if __name__ == '__main__':
     main()

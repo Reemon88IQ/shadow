@@ -321,6 +321,44 @@ def get_upload(upload_id=''):
     return UPLOADS[UPLOAD_ORDER[-1]] if UPLOAD_ORDER else None
 
 
+# ---------------------------------------------------------------- video + song (3.18): level 2 = Claude looks, then decides
+import video_song as vsong   # noqa: E402
+
+def video_song_inputs(video, song=''):
+    """-> (video, song) as absolute paths; song '' = <video>.mp3/.wav/... next to it (Sound Auto). Raises ValueError."""
+    video = os.path.abspath(os.path.expanduser(video or ''))
+    if not vsong.is_video(video) or not os.path.isfile(video): raise ValueError(f'not a video file: {video!r} ({", ".join(vsong.VIDEO_EXTS)})')
+    song = os.path.abspath(os.path.expanduser(song)) if song else app.find_scene_audio(video)
+    if not song or not os.path.isfile(song):
+        raise ValueError(f'no song: put {os.path.splitext(os.path.basename(video))[0]}.mp3 next to the video, or pass song=<file>')
+    return video, song
+
+class VideoSongJob:
+    """One video + song render in a background thread, through app.render_scene (folders, QC, thumbnail as in the queue)."""
+    def __init__(self, video, song, out_dir, folder, overrides):
+        self.id = uuid.uuid4().hex[:8]; self.video, self.song, self.out_dir = video, song, out_dir
+        self.state = 'running'; self.stage = 'load'; self.result = None; self.started = time.time(); self.ended = None
+        self.cancel = threading.Event(); self.warns = []
+        opts = dict(vertical=False, format=app.FORMAT_AUTO, sound='file', audio_file=song, capture='png', folder=folder, **overrides)
+        self.thread = threading.Thread(target=self._run, args=(opts,), daemon=True); self.thread.start()
+    def _run(self, opts):
+        def prog(stage, *a): self.stage = stage
+        try:
+            self.result = app.render_scene(self.video, rc.PRESETS[QUALITY['best']], self.out_dir, opts, cancel=self.cancel, progress=prog, warns=self.warns)
+            self.state = {'done': 'finished', 'cancelled': 'cancelled'}.get(self.result['status'], 'error')
+        except Exception as e:
+            self.result = dict(status='error', error=str(e)); self.state = 'error'
+        self.ended = time.time()
+    def snapshot(self):
+        r = self.result or {}
+        out = dict(job_id=self.id, state=self.state, stage=self.stage, video=self.video, song=self.song,
+                   seconds=round((self.ended or time.time()) - self.started, 1))
+        if r: out.update(status=r.get('row'), mp4=r.get('mp4'), qc=(r.get('qc') or {}).get('status'), qc_report=r.get('qc_report'),
+                         thumbnail=r.get('thumb'), error=r.get('error'), warnings=self.warns)
+        return out
+VIDEO_JOBS = {}; VIDEO_ORDER = []
+
+
 RUNNER = None
 def runner():
     global RUNNER
@@ -547,6 +585,56 @@ def build_server():
         u = get_upload(upload_id)
         if not u: return dict(error='no such upload')
         u.cancel.set(); return dict(upload_id=u.id, cancelling=u.state == 'running', state=u.state)
+
+    @mcp.tool()
+    async def shadow_video_look(video: str, song: str = '', show_sheet: bool = True):
+        """Look at a finished video + a song before joining them (Shadow 3.18): Shadow's own measurements of the video
+        (motion every 0.5 s and its peak, hard cuts, dark frames, the best loop point and how alike it is to the first frame),
+        the song's beats / BPM / chorus (librosa) and the arrangement Shadow would make on its own (mode chorus | loop | trim |
+        as_is, song_start, loop_end). With show_sheet the contact sheet comes back as an image: LOOK at it and decide whether
+        the automatic plan is right (e.g. the moment that should meet the chorus, a loop point that hides the jump).
+        song '' = <video>.mp3/.wav next to the video. Writes <video>.check.jpg next to the video; renders nothing."""
+        try:
+            video, song = video_song_inputs(video, song)
+            sheet = os.path.splitext(video)[0] + '.check.jpg'
+            v = await asyncio.to_thread(vsong.look, video, sheet)
+            s = await asyncio.to_thread(vsong.song_info, song, v['dur'])
+            pl = vsong.plan(v, s)
+        except (ValueError, RuntimeError) as e: return dict(error=str(e))
+        res = dict(video=video, song=song, look={k: v[k] for k in v if k != 'sheet'}, song_info={k: s[k] for k in ('dur', 'bpm', 'chorus', 'source')},
+                   beats_first=(s['beats'] or [])[:16], plan=pl, summary=vsong.describe(v, s, pl), sheet=v['sheet'],
+                   next='shadow_video_song(video, song, mode=..., song_start=..., loop_end=...) renders it; leave them out to use this plan.')
+        if show_sheet and v['sheet'] and os.path.isfile(v['sheet']): return [json.dumps(res, ensure_ascii=False, indent=1), Image(path=v['sheet'])]
+        return res
+
+    @mcp.tool()
+    def shadow_video_song(video: str, song: str = '', mode: str = 'auto', song_start: float = -1, loop_end: float = -1,
+                          out_dir: str = '', folder: str = 'auto') -> dict:
+        """Join a finished video and a song into one music video (Shadow 3.18), like dropping the video in the Shadow queue:
+        <out_dir>/<folder>/<video name>/<video name>.mp4 (9:16 -> _shorts.mp4), the song at -14 LUFS, BT.709, QC report,
+        thumbnail at the strongest moment, never overwriting. Look first with shadow_video_look. mode auto | chorus | loop |
+        trim | as_is; song_start (seconds, -1 = the plan's) where the song starts (chorus mode: put a strong beat where the
+        video's key moment is); loop_end (-1 = the plan's) where a looping video jumps back. Runs in the background: follow
+        it with shadow_video_song_progress(job_id, wait_seconds=50)."""
+        try:
+            video, song = video_song_inputs(video, song)
+            if mode not in vsong.MODES: raise ValueError(f"mode must be one of {', '.join(vsong.MODES)}")
+        except ValueError as e: return dict(error=str(e))
+        ov = dict(video_mode=mode, **({'song_start': float(song_start)} if song_start is not None and song_start >= 0 else {}),
+                  **({'loop_end': float(loop_end)} if loop_end is not None and loop_end >= 0 else {}))
+        j = VideoSongJob(video, song, os.path.abspath(os.path.expanduser(out_dir)) if out_dir else default_out_dir(), folder_choice(folder), ov)
+        VIDEO_JOBS[j.id] = j; VIDEO_ORDER.append(j.id)
+        return dict(job_id=j.id, started=True, video=video, song=song, mode=mode)
+
+    @mcp.tool()
+    async def shadow_video_song_progress(job_id: str = '', wait_seconds: float = 0) -> dict:
+        """A video + song job (default: the latest): state running | finished | error | cancelled, stage, and when finished the
+        mp4, QC status, QC report and thumbnail. wait_seconds (max 55) blocks until it ends or the time is up."""
+        j = VIDEO_JOBS.get(job_id) if job_id else (VIDEO_JOBS[VIDEO_ORDER[-1]] if VIDEO_ORDER else None)
+        if not j: return dict(error=f'no such job: {job_id}' if job_id else 'no video + song job yet')
+        end = time.time() + max(0.0, min(float(wait_seconds or 0), 55.0))
+        while time.time() < end and j.state == 'running': await asyncio.sleep(0.25)
+        return j.snapshot()
 
     @mcp.tool()
     def shadow_jobs() -> list[dict]:

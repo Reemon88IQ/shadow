@@ -84,6 +84,7 @@ def u4():
         assert not os.path.exists(os.path.join(d, bad['name'])) and not os.path.exists(os.path.join(d, bad['name'] + '.part'))
 
 def gui(newer):
+    os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
     import app, render_core as rc
     app.CFG = os.path.join(TMP, 'cfg.json'); app.LOG = os.path.join(TMP, 'shadow.log'); app.LOG_DIR = os.path.join(TMP, 'logs')
     os.environ['TEMP'] = os.path.join(TMP, 'temp')   # do_update downloads into %TEMP%\Shadow-update

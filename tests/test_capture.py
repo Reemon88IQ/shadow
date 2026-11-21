@@ -78,6 +78,7 @@ try:
     open(th_scene, 'w', encoding='utf-8').write(open(WEBGL, encoding='utf-8').read() + '\n<script>window.THUMBNAIL_T = 2;</script>\n')
     out = os.path.join(TMP, 'c10.mp4'); info = {}
     rc.render(th_scene, out, PRESET, info=info, **dict(KW, max_frames=None))
+    os.environ['SHADOW_LANG'] = 'en'   # 3.20: the tests read the English texts
     import app as _app
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import no_dialogs; no_dialogs.block(_app)   # never a real window on the screen
     th = _app.save_thumbnail(out, info.get('thumbnail_t', -1), False)
