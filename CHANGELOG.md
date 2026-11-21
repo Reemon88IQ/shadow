@@ -3,6 +3,11 @@
 Every release is on the [Releases](../../releases) page with its `Shadow-<version>-Setup.exe`. Installed copies update
 themselves: Shadow shows **Update to vX.Y** when a new release is out.
 
+## 3.22
+- **Fix: changing the language crashed the restarted Shadow** ("Failed to execute script pyi_rth_pkgres", then "Failed to
+  remove temporary directory"). The new Shadow was started inside the closing one's temporary folder, which Windows was
+  deleting at that moment. It now starts as its own, independent copy (the same fix the updater already had).
+
 ## 3.20
 - **Shadow in your language**: English, العربية, 中文, हिन्दी, Español, Français, Português, Русский, Bahasa Indonesia,
   Deutsch and 日本語. Pick it from the list at the top (Auto = your Windows language); Shadow restarts in it. Buttons,

@@ -108,6 +108,13 @@ try:
     restarted.clear(); w.lang_var.set(w.lang_names[0])
     w.on_language(ask=lambda *a: False, restart=lambda: restarted.append(1))
     check('L7 Auto is saved as "auto"; No = no restart', saved.get('language') == 'auto' and not restarted)
+    kw = app.restart_kw({'PATH': 'x', '_PYI_APPLICATION_HOME_DIR': 'C:/T/_MEI1', '_MEIPASS2': 'C:/T/_MEI1', '_PYI_ARCHIVE_FILE': 'a'})
+    check('L7 restart: the new Shadow.exe unpacks its own temp folder (3.21 crashed reusing the closing one)',
+          kw['env'].get('PYINSTALLER_RESET_ENVIRONMENT') == '1' and not [k for k in kw['env'] if k.upper().startswith(('_PYI_', '_MEIPASS'))]
+          and kw['env'].get('PATH') == 'x', kw['env'])
+    started = []; w.on_close = lambda: started.append('closed')
+    w.restart(popen=lambda args, **k: started.append((args, k.get('env', {}).get('PYINSTALLER_RESET_ENVIRONMENT'))))
+    check('L7 restart starts Shadow with that environment, then closes', len(started) == 2 and started[0][1] == '1' and started[1] == 'closed', started)
 finally:
     w.destroy(); os.environ['SHADOW_LANG'] = 'en'
     app.close_log(); shutil.rmtree(TMP, ignore_errors=True)

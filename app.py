@@ -1566,10 +1566,12 @@ class App(Root):
                 messagebox.showinfo(tr('Language'), tr('A render is running: the new language is used the next time Shadow starts.')); return True
             (restart or self.restart)()
         return True
-    def restart(self):
+    def restart(self, popen=subprocess.Popen):
+        """Start a new Shadow and close this one. The new Shadow.exe must NOT reuse this one's _MEI temp folder: that folder is
+        deleted when this process exits, and the new one then crashed at start ('pyi_rth_pkgres ... No such file', 3.21).
+        PYINSTALLER_RESET_ENVIRONMENT=1 (PyInstaller 6.9+) makes it a fresh, independent instance."""
         args = [sys.executable] if getattr(sys, 'frozen', False) else [sys.executable, os.path.abspath(__file__)]
-        try: subprocess.Popen(args, close_fds=True)
-        except Exception: log.exception('restart'); return
+        popen(args, **restart_kw())
         self.on_close()
     def open_new_video(self):
         """Top bar 'New video (AI)...': idea -> narration, voice, scene (ai_tasks.new_video) -> into the queue."""
@@ -1624,6 +1626,13 @@ class App(Root):
         if getattr(self, 'check_window_off', False): return None   # tests
         try: return CheckWindow(self, f, res)
         except Exception: log.exception('check window'); return None
+
+
+def restart_kw(env=None):
+    """Popen arguments for starting Shadow again from inside Shadow: its own environment without PyInstaller's markers of
+    this process, plus PYINSTALLER_RESET_ENVIRONMENT=1, so a new onefile exe unpacks itself instead of using our temp folder."""
+    return dict(env=updater.child_env(env), close_fds=True, cwd=os.path.expanduser('~'),   # the updater's setup launch fix (3.7)
+                creationflags=getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
 
 
 def render_problems(r):
